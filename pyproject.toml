@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mr-reviewer"
+version = "0.1.0"
+description = "AI-powered GitLab merge request reviewer using Claude"
+requires-python = ">=3.11"
+dependencies = [
+    "python-gitlab>=4.0",
+    "unidiff>=0.7",
+    "anthropic>=0.40",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+mr-reviewer = "mr_reviewer.__main__:main"

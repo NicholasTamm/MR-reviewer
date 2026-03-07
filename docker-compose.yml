@@ -1,0 +1,8 @@
+services:
+  mr-reviewer:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./mr_reviewer:/app/mr_reviewer  # live reload — code changes reflect without rebuild
+    entrypoint: ["python", "-m", "mr_reviewer"]
