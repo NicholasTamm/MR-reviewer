@@ -60,7 +60,8 @@ def get_changed_file_paths(diff_string: str) -> list[str]:
     paths: list[str] = []
     try:
         patch = PatchSet(diff_string)
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to parse diff: %s", e)
         return paths
 
     for patched_file in patch:
@@ -74,6 +75,22 @@ def get_changed_file_paths(diff_string: str) -> list[str]:
         paths.append(path)
 
     return paths
+
+
+def determine_line_type(
+    comment_file: str, comment_line: int, diff_lines: list[DiffLine]
+) -> bool:
+    """Determine if a comment targets an added line (True) or removed line (False).
+
+    Defaults to addition if ambiguous.
+    """
+    for dl in diff_lines:
+        if dl.file_path == comment_file:
+            if dl.new_line == comment_line and dl.line_type == "+":
+                return True
+            if dl.old_line == comment_line and dl.line_type == "-":
+                return False
+    return True  # default to addition
 
 
 def validate_comment_line(

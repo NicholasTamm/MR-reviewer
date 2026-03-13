@@ -16,3 +16,10 @@ venv/
 .idea/
 *.swp
 *.swo
+
+# OS
+.DS_Store
+
+# Test cache
+.pytest_cache/
+

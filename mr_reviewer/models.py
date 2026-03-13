@@ -40,6 +40,7 @@ class ReviewComment(BaseModel):
     line: int
     body: str
     severity: str  # "info", "warning", "error"
+    is_new_line: bool = True  # True = addition (RIGHT side), False = deletion (LEFT side)
 
 
 class ReviewResult(BaseModel):
@@ -49,7 +50,24 @@ class ReviewResult(BaseModel):
     comments: list[ReviewComment]
 
 
-class DiffRefs(BaseModel):
+class MRMetadata(BaseModel):
+    """Merge/pull request metadata."""
+
+    title: str = ""
+    description: str = ""
+    source_branch: str = ""
+    target_branch: str = ""
+    web_url: str = ""
+
+
+class FetchResult(BaseModel):
+    """Result from fetching MR/PR changes. Platform-specific refs are cached internally by the client."""
+
+    diff_files: list[DiffFile]
+    metadata: MRMetadata
+
+
+class GitLabDiffRefs(BaseModel):
     """GitLab diff reference SHAs."""
 
     base_sha: str

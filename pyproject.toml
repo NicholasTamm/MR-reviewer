@@ -12,7 +12,16 @@ dependencies = [
     "unidiff>=0.7",
     "anthropic>=0.40",
     "pydantic>=2.0",
+    "httpx>=0.27",
 ]
+
+[project.optional-dependencies]
+gemini = ["google-genai>=1.0"]
+ollama = ["ollama>=0.4"]
+all-providers = ["google-genai>=1.0", "ollama>=0.4"]
 
 [project.scripts]
 mr-reviewer = "mr_reviewer.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["mr_reviewer*"]
