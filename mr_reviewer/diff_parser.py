@@ -1,4 +1,5 @@
 import logging
+import re
 
 from unidiff import PatchSet
 
@@ -77,6 +78,42 @@ def get_changed_file_paths(diff_string: str) -> list[str]:
     return paths
 
 
+def annotate_diff(diff_string: str) -> str:
+    """Return the diff with [L{n}] line-number annotations on each changed line.
+
+    Each addition line becomes: +[L{new_line}] content
+    Each deletion line becomes: -[L{old_line}] content
+
+    This lets the AI read exact line numbers directly instead of counting
+    from hunk headers, which it frequently gets wrong.
+    """
+    result = []
+    old_line = 0
+    new_line = 0
+
+    for raw_line in diff_string.split("\n"):
+        if raw_line.startswith("@@"):
+            m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw_line)
+            if m:
+                old_line = int(m.group(1))
+                new_line = int(m.group(2))
+            result.append(raw_line)
+        elif raw_line.startswith("+") and not raw_line.startswith("+++"):
+            result.append(f"+[L{new_line}]{raw_line[1:]}")
+            new_line += 1
+        elif raw_line.startswith("-") and not raw_line.startswith("---"):
+            result.append(f"-[L{old_line}]{raw_line[1:]}")
+            old_line += 1
+        else:
+            # Context line — both counters advance; file headers don't
+            if not raw_line.startswith(("---", "+++")):
+                old_line += 1
+                new_line += 1
+            result.append(raw_line)
+
+    return "\n".join(result)
+
+
 def determine_line_type(
     comment_file: str, comment_line: int, diff_lines: list[DiffLine]
 ) -> bool:
@@ -96,10 +133,13 @@ def determine_line_type(
 def validate_comment_line(
     file_path: str, line: int, diff_lines: list[DiffLine]
 ) -> bool:
-    """Check if a (file, line) pair exists in the parsed diff as a changed line."""
+    """Check if a (file, new_line) pair exists in the parsed diff as an added line.
+
+    Only addition lines are accepted — the AI is instructed to comment on
+    additions only, and this rejects hallucinated line numbers that happen to
+    coincide with an old/deleted line number elsewhere in the diff.
+    """
     for dl in diff_lines:
-        if dl.file_path == file_path:
-            # Match against new_line for additions, old_line for deletions
-            if dl.new_line == line or dl.old_line == line:
-                return True
+        if dl.file_path == file_path and dl.new_line == line and dl.line_type == "+":
+            return True
     return False

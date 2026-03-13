@@ -1,6 +1,7 @@
 import logging
 
 from mr_reviewer.diff_parser import (
+    annotate_diff,
     determine_line_type,
     get_changed_file_paths,
     parse_diff,
@@ -92,7 +93,7 @@ def review_mr(
     user_message = build_user_message(
         title=fetch_result.metadata.title,
         description=fetch_result.metadata.description,
-        diff=unified_diff,
+        diff=annotate_diff(unified_diff),
         file_contents=file_contents,
     )
 

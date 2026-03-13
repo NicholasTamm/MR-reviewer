@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from mr_reviewer.exceptions import ProviderError
 from mr_reviewer.models import DiffFile, MRMetadata, ReviewComment, ReviewResult
+from mr_reviewer.diff_parser import annotate_diff
 from mr_reviewer.prompts import build_system_prompt, build_user_message
 from mr_reviewer.providers.base import ReviewProvider
 
@@ -77,7 +78,7 @@ def parallel_review(
         user_message = build_user_message(
             title=metadata.title,
             description=metadata.description,
-            diff=partial_diff,
+            diff=annotate_diff(partial_diff),
             file_contents=partial_contents,
         )
         return provider.run_review(system_prompt, user_message)
