@@ -1,0 +1,10 @@
+services:
+  mr-reviewer:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./mr_reviewer:/app/mr_reviewer
+    entrypoint: ["bash"]
+    stdin_open: true
+    tty: true
