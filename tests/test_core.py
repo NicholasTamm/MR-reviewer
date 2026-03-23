@@ -2,7 +2,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mr_reviewer.core import build_unified_diff as _build_unified_diff, review_mr
+from mr_reviewer.core import (
+    _enforce_comment_threshold,
+    build_unified_diff as _build_unified_diff,
+    review_mr,
+)
 from mr_reviewer.models import (
     DiffFile,
     FetchResult,
@@ -250,3 +254,67 @@ class TestReviewMR:
         # The comment should have is_new_line set (True for addition)
         assert len(result.comments) == 1
         assert result.comments[0].is_new_line is True
+
+
+class TestEnforceCommentThreshold:
+    """Test _enforce_comment_threshold() comment budget enforcement."""
+
+    def _make_comment(self, file, line, severity):
+        return ReviewComment(
+            file=file, line=line, body=f"{severity} issue", severity=severity
+        )
+
+    def test_under_budget_no_change(self):
+        comments = [
+            self._make_comment("a.py", 1, "warning"),
+            self._make_comment("a.py", 2, "info"),
+        ]
+        result = _enforce_comment_threshold(comments, max_comments=5)
+        assert len(result) == 2
+
+    def test_threshold_truncates_non_critical(self):
+        comments = [
+            self._make_comment("a.py", 1, "error"),
+            self._make_comment("a.py", 2, "error"),
+            self._make_comment("a.py", 3, "warning"),
+            self._make_comment("a.py", 4, "warning"),
+            self._make_comment("a.py", 5, "info"),
+            self._make_comment("a.py", 6, "info"),
+            self._make_comment("a.py", 7, "info"),
+        ]
+        result = _enforce_comment_threshold(comments, max_comments=5)
+        # 2 critical + 3 non-critical (budget = 5 - 2 = 3)
+        assert len(result) == 5
+        error_count = sum(1 for c in result if c.severity == "error")
+        assert error_count == 2
+
+    def test_critical_comments_override_threshold(self):
+        comments = [self._make_comment("a.py", i, "error") for i in range(8)]
+        result = _enforce_comment_threshold(comments, max_comments=3)
+        # All 8 error comments kept despite budget of 3
+        assert len(result) == 8
+
+    def test_warnings_prioritized_over_info(self):
+        comments = [
+            self._make_comment("a.py", 1, "info"),
+            self._make_comment("a.py", 2, "warning"),
+            self._make_comment("a.py", 3, "info"),
+            self._make_comment("a.py", 4, "warning"),
+        ]
+        result = _enforce_comment_threshold(comments, max_comments=2)
+        # Budget is 2, no critical. Keep 2 highest priority: warnings
+        assert len(result) == 2
+        assert all(c.severity == "warning" for c in result)
+
+    def test_sorted_by_file_and_line(self):
+        comments = [
+            self._make_comment("b.py", 10, "error"),
+            self._make_comment("a.py", 5, "warning"),
+            self._make_comment("a.py", 1, "error"),
+        ]
+        result = _enforce_comment_threshold(comments, max_comments=10)
+        assert [(c.file, c.line) for c in result] == [
+            ("a.py", 1),
+            ("a.py", 5),
+            ("b.py", 10),
+        ]

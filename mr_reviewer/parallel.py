@@ -50,6 +50,7 @@ def parallel_review(
     focus_areas: list[str],
     metadata: MRMetadata,
     num_agents: int = 2,
+    max_comments: int = 10,
 ) -> ReviewResult:
     """Run parallel reviews by partitioning diff_files across num_agents.
 
@@ -64,7 +65,7 @@ def parallel_review(
     for i, df in enumerate(diff_files):
         partitions[i % num_agents].append(df)
 
-    system_prompt = build_system_prompt(focus_areas)
+    system_prompt = build_system_prompt(focus_areas, max_comments=max_comments)
 
     def run_agent(partition: list[DiffFile]) -> ReviewResult:
         partial_diff = _build_partial_diff(partition)

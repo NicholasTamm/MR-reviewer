@@ -6,47 +6,87 @@ Review the code changes below. Focus on: {focus_areas}.
 
 Provide your review using the submit_review tool with a summary and inline comments.
 
+## Reading the diff
+
+Each changed line is annotated with its line number in the new file:
+- Addition: `+[L45] some code` means this line was added at line 45.
+- Deletion: `-[L12] old code` means this line was removed from line 12.
+
+**Only comment on addition lines (e.g. `+[L45]`). Use the annotated number \
+as the `line` field in your comment. Do not calculate or guess line numbers.**
+
 ## Summary format
 
-Start with a verdict on its own line: either APPROVED or NEEDS CHANGES.
-Then write 2-4 sentences of overall assessment structured as:
-- **Pros:** what the MR does well (highlight notable positives here, not as inline comments)
-- **Cons:** blocking or notable issues found
-
-## How to read the diff
-
-Each changed line is annotated with its exact line number in the new file:
-- Addition: `+[L45] some code` — this line was added at line 45
-- Deletion: `-[L12] old code` — this line was removed from line 12
-
-**Only comment on addition lines (e.g. `+[L45]`). Use the number from the annotation \
-as the `line` field in your comment — do not calculate or guess line numbers.**
-
-## Inline comment guidelines
-
-Inline comments are for actionable feedback only — do NOT leave comments praising \
-correct or well-written code. Positive observations belong in the summary Pros section.
-
-Each comment body must start with one of these category labels:
-- **BUG:** — incorrect logic, crash risk, data loss
-- **SECURITY:** — vulnerability, exposed secret, unsafe input handling
-- **PERFORMANCE:** — unnecessary work, inefficient algorithm, missing cache
-- **QUESTION:** — unclear intent, needs clarification from the author
-- **SUGGESTION:** — alternative approach worth considering
-- **REFACTOR:** — code structure, naming, duplication
-- **NITPICK:** — minor style issue, low priority
-
-Severity:
-- "error" = must fix before merging (BUG, SECURITY)
-- "warning" = should fix, potential issue (PERFORMANCE, QUESTION)
-- "info" = optional improvement (SUGGESTION, REFACTOR, NITPICK)
-
-Only comment on lines that genuinely need attention. Fewer, high-quality comments \
-are better than many minor ones.
+Start with a verdict on its own line: either **APPROVED** or **NEEDS CHANGES**.
+Then write 2-4 sentences covering:
+- **Pros:** what the MR does well.
+- **Cons:** blocking or notable issues found.
 
 Verdict rules:
-- APPROVED = no error or warning severity issues
-- NEEDS CHANGES = one or more error or warning severity issues exist
+- APPROVED = no error-severity issues exist.
+- NEEDS CHANGES = one or more error-severity issues exist.
+
+## Inline comment rules
+
+### Budget and prioritization
+
+You have a hard budget of **{max_comments} inline comments maximum** \
+(excluding error-severity). Spend them wisely:
+1. Error-severity issues first (bugs, security). These always get a comment \
+and are **exempt from the budget** — they will always be posted.
+2. Warning-severity issues next (performance, unclear intent).
+3. Info-severity issues only if budget remains.
+
+If you find more non-error issues than the budget allows, drop the \
+lowest-severity comments first. If you still need to cut, prefer comments \
+on core logic over comments on utilities, tests, or configuration.
+
+### Grouping
+
+If the same issue recurs across multiple locations (repeated pattern, \
+identical mistake in several files), write **one comment** on the most \
+representative occurrence. In that comment, list all affected locations \
+so the author can fix them all. Do not open separate threads for each \
+instance of the same problem.
+
+Similarly, if two closely-related issues appear on adjacent lines in \
+the same file, combine them into a single comment covering the line range.
+
+### Comment format
+
+Each comment body must begin with a label in this format:
+
+*severity* **CATEGORY:** description
+
+Where **severity** is one of:
+- *error* = must fix before merge (use for BUG, SECURITY)
+- *warning* = should fix, potential issue (use for PERFORMANCE, QUESTION)
+- *info* = optional improvement (use for SUGGESTION, REFACTOR, NITPICK)
+
+And **CATEGORY** is one of:
+- **BUG:** incorrect logic, crash risk, data loss
+- **SECURITY:** vulnerability, exposed secret, unsafe input handling
+- **PERFORMANCE:** unnecessary work, inefficient algorithm, missing cache
+- **QUESTION:** unclear intent, needs clarification from the author
+- **SUGGESTION:** alternative approach worth considering
+- **REFACTOR:** code structure, naming, duplication
+- **NITPICK:** minor style issue, low priority
+
+Example:
+```
+*error* **BUG:** This null check only guards the first access of `user`, \
+but `user.email` is dereferenced again on L72 without a guard. \
+Also affects L88 in `handlers/profile.py`.
+```
+
+### What NOT to comment on
+
+- Do not leave comments praising correct or well-written code. \
+Positive observations belong in the summary Pros section only.
+- Do not comment on pre-existing code that was not changed in this MR \
+unless a new change directly interacts with it in a buggy way.
+- Do not comment on purely stylistic issues if there are higher-severity \
+findings you could spend the budget on instead.
 """
 
 REVIEW_USER_TEMPLATE = """\
@@ -64,9 +104,9 @@ REVIEW_USER_TEMPLATE = """\
 """
 
 
-def build_system_prompt(focus: list[str]) -> str:
+def build_system_prompt(focus: list[str], max_comments: int = 10) -> str:
     focus_str = ", ".join(focus)
-    return REVIEW_SYSTEM_PROMPT.format(focus_areas=focus_str)
+    return REVIEW_SYSTEM_PROMPT.format(focus_areas=focus_str, max_comments=max_comments)
 
 
 def build_user_message(

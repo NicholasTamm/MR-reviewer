@@ -9,13 +9,41 @@ from mr_reviewer.diff_parser import (
 )
 from mr_reviewer.config import Config
 from mr_reviewer.exceptions import ReviewError
-from mr_reviewer.models import DiffFile, MRInfo, MRMetadata, ReviewResult
+from mr_reviewer.models import DiffFile, MRInfo, MRMetadata, ReviewComment, ReviewResult
 from mr_reviewer.platforms.base import PlatformClient
 from mr_reviewer.prompts import build_system_prompt, build_user_message
 from mr_reviewer.providers.base import ReviewProvider
 from mr_reviewer.url_parser import parse_mr_url
 
 logger = logging.getLogger(__name__)
+
+
+_SEVERITY_PRIORITY = {"warning": 0, "info": 1}
+
+
+def _enforce_comment_threshold(
+    comments: list[ReviewComment], max_comments: int
+) -> list[ReviewComment]:
+    """Enforce the comment budget. Error-severity comments always pass through."""
+    critical = [c for c in comments if c.severity == "error"]
+    non_critical = [c for c in comments if c.severity != "error"]
+
+    budget = max(0, max_comments - len(critical))
+    if len(non_critical) > budget:
+        # Sort by severity priority: warning before info
+        non_critical.sort(key=lambda c: _SEVERITY_PRIORITY.get(c.severity, 99))
+        dropped = len(non_critical) - budget
+        non_critical = non_critical[:budget]
+        logger.warning(
+            "Dropped %d comment(s) to stay within budget of %d (kept %d critical)",
+            dropped,
+            max_comments,
+            len(critical),
+        )
+
+    result = critical + non_critical
+    result.sort(key=lambda c: (c.file, c.line))
+    return result
 
 
 def build_unified_diff(diff_files: list[DiffFile]) -> str:
@@ -37,6 +65,7 @@ def review_mr(
     dry_run: bool = False,
     parallel: bool = False,
     parallel_threshold: int = 10,
+    max_comments: int = 10,
 ) -> ReviewResult:
     """Main review orchestration function.
 
@@ -89,7 +118,7 @@ def review_mr(
 
     # Build prompts
     focus_areas = focus or config.default_focus
-    system_prompt = build_system_prompt(focus_areas)
+    system_prompt = build_system_prompt(focus_areas, max_comments=max_comments)
     user_message = build_user_message(
         title=fetch_result.metadata.title,
         description=fetch_result.metadata.description,
@@ -107,6 +136,7 @@ def review_mr(
             focus_areas=focus_areas,
             metadata=fetch_result.metadata,
             num_agents=2,
+            max_comments=max_comments,
         )
     else:
         review = provider.run_review(system_prompt, user_message)
@@ -129,6 +159,10 @@ def review_mr(
                 comment.file,
                 comment.line,
             )
+
+    # Enforce comment threshold — critical (error) comments always pass through
+    valid_comments = _enforce_comment_threshold(valid_comments, max_comments)
+
     review = review.model_copy(update={"comments": valid_comments})
 
     # Output or post

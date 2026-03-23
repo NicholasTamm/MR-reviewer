@@ -53,6 +53,13 @@ def main() -> None:
         help="Minimum number of changed files to trigger parallel mode (default: 10)",
     )
     parser.add_argument(
+        "--max-comments",
+        type=int,
+        default=None,
+        help="Maximum number of non-critical inline comments (default: 10). "
+             "Error-severity comments are always posted regardless of this limit.",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
@@ -79,6 +86,8 @@ def main() -> None:
         platform_client = create_platform_client(config, mr_info)
         provider = create_provider(config)
 
+        max_comments = args.max_comments if args.max_comments is not None else config.max_comments
+
         review_mr(
             url=args.url,
             provider=provider,
@@ -87,6 +96,7 @@ def main() -> None:
             dry_run=args.dry_run,
             parallel=args.parallel or config.parallel_review,
             parallel_threshold=args.parallel_threshold,
+            max_comments=max_comments,
         )
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)

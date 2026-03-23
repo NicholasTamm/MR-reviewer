@@ -112,3 +112,15 @@ def test_ollama_host_default(monkeypatch):
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
     config = Config()
     assert config.ollama_host == "http://localhost:11434"
+
+
+def test_max_comments_default(monkeypatch):
+    monkeypatch.delenv("MR_REVIEWER_MAX_COMMENTS", raising=False)
+    config = Config()
+    assert config.max_comments == 10
+
+
+def test_max_comments_from_env(monkeypatch):
+    monkeypatch.setenv("MR_REVIEWER_MAX_COMMENTS", "5")
+    config = Config()
+    assert config.max_comments == 5

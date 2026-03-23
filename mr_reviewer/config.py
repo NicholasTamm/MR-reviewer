@@ -30,6 +30,9 @@ class Config:
         self.parallel_threshold: int = int(
             os.environ.get("MR_REVIEWER_PARALLEL_THRESHOLD", "10")
         )
+        self.max_comments: int = int(
+            os.environ.get("MR_REVIEWER_MAX_COMMENTS", "10")
+        )
 
     def require_gitlab_token(self) -> str:
         if not self.gitlab_token:
