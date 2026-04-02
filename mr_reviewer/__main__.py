@@ -17,7 +17,25 @@ def main() -> None:
     )
     parser.add_argument(
         "url",
-        help="GitLab MR or GitHub PR URL",
+        nargs="?",
+        default=None,
+        help="GitLab MR or GitHub PR URL (not required with --serve)",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Start the web UI server instead of running a CLI review",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port for the web UI server (default: 8080)",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind the web UI server (default: 127.0.0.1)",
     )
     parser.add_argument(
         "--dry-run",
@@ -71,6 +89,28 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    # Web UI server mode
+    if args.serve:
+        try:
+            import uvicorn  # noqa: PLC0415
+            from mr_reviewer.api.app import create_app  # noqa: PLC0415
+        except ImportError:
+            print(
+                "Error: Web dependencies not installed.\n"
+                "Install with: pip install -e '.[web]'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        app = create_app()
+        logging.info("Starting MR Reviewer web UI on port %d", args.port)
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+        return
+
+    # CLI review mode — URL is required
+    if not args.url:
+        parser.error("url is required (unless using --serve)")
 
     focus = [f.strip() for f in args.focus.split(",")]
 

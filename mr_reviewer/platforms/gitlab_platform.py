@@ -18,13 +18,6 @@ from mr_reviewer.models import (
 
 logger = logging.getLogger(__name__)
 
-SEVERITY_PREFIX = {
-    "error": "**Error:**",
-    "warning": "**Warning:**",
-    "info": "**Suggestion:**",
-}
-
-
 class GitLabClient:
     """Client for interacting with the GitLab API.
 
@@ -125,9 +118,6 @@ class GitLabClient:
         for comment in review.comments:
             old_path, new_path = self._find_file_paths(comment.file)
 
-            prefix = SEVERITY_PREFIX.get(comment.severity, "")
-            body = f"{prefix} {comment.body}" if prefix else comment.body
-
             position: dict[str, Any] = {
                 "position_type": "text",
                 "base_sha": self._diff_refs.base_sha,
@@ -143,7 +133,7 @@ class GitLabClient:
                 position["old_line"] = comment.line
 
             try:
-                mr.discussions.create({"body": body, "position": position})
+                mr.discussions.create({"body": comment.body, "position": position})
                 logger.info(
                     "Posted inline comment on %s:%d", comment.file, comment.line
                 )

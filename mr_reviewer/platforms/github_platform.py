@@ -16,12 +16,6 @@ from mr_reviewer.models import (
 
 logger = logging.getLogger(__name__)
 
-SEVERITY_PREFIX = {
-    "error": "**Error:**",
-    "warning": "**Warning:**",
-    "info": "**Suggestion:**",
-}
-
 MAX_FILES = 3000
 
 
@@ -161,13 +155,10 @@ class GitHubClient:
         # Build inline comments
         comments = []
         for c in review.comments:
-            prefix = SEVERITY_PREFIX.get(c.severity, "")
-            body = f"{prefix} {c.body}" if prefix else c.body
-
             comment_payload: dict = {
                 "path": c.file,
                 "line": c.line,
-                "body": body,
+                "body": c.body,
                 "side": "RIGHT" if c.is_new_line else "LEFT",
             }
             comments.append(comment_payload)

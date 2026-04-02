@@ -87,6 +87,7 @@ def parse_mr_url(url: str) -> MRInfo:
         return parse_github_pr_url(url)
 
     # Try GitLab
+    # We check the path rather than the hostname to support self-hosted GitLab instances
     if "/-/merge_requests/" in parsed.path:
         return parse_gitlab_mr_url(url)
 
