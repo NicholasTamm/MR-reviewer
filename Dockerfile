@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY mr_reviewer/ ./mr_reviewer/
 
-RUN pip install --no-cache-dir -e ".[all-providers]"
+RUN pip install --no-cache-dir -e ".[all]"
 
 ENTRYPOINT ["python", "-m", "mr_reviewer"]
 CMD []
