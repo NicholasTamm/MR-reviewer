@@ -23,6 +23,8 @@ class JobStatus(BaseModel):
     job_id: str
     status: str  # "pending", "fetching", "reviewing", "complete", "failed", "posted"
     progress: str | None = None
+    error: str | None = None
+    error_type: str | None = None
     created_at: datetime
     url: str
 

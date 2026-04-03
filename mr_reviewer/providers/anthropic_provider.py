@@ -75,6 +75,10 @@ class AnthropicProvider:
                 tools=[REVIEW_TOOL],
                 tool_choice={"type": "tool", "name": "submit_review"},
             )
+        except anthropic.AuthenticationError:
+            raise ProviderError(
+                "Anthropic API key is invalid or expired — check ANTHROPIC_API_KEY"
+            ) from None
         except anthropic.APIError as e:
             raise ProviderError(f"Anthropic API error: {e}") from e
 

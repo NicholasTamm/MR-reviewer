@@ -1,5 +1,6 @@
 services:
-  mr-reviewer:
+  cli:
+    profiles: ["cli"]
     build: .
     env_file:
       - .env

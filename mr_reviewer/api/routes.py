@@ -26,7 +26,7 @@ from mr_reviewer.diff_parser import (
     parse_diff,
     validate_comment_line,
 )
-from mr_reviewer.exceptions import MRReviewerError
+from mr_reviewer.exceptions import ConfigurationError, MRReviewerError, PlatformError, ProviderError
 from mr_reviewer.models import DiffLine, ReviewComment, ReviewResult
 from mr_reviewer.platforms import create_platform_client
 from mr_reviewer.prompts import build_system_prompt, build_user_message
@@ -65,6 +65,23 @@ def _extract_diff_context(
         prefix = dl.line_type if dl.line_type in ("+", "-") else " "
         result.append(f"{prefix}{dl.content.rstrip()}")
     return result
+
+
+_AUTH_KEYWORDS = frozenset({"401", "unauthorized", "authentication", "forbidden"})
+
+
+def _classify_error(e: Exception) -> str:
+    """Map an exception to a structured error_type string."""
+    if isinstance(e, ConfigurationError):
+        return "config"
+    if isinstance(e, ValueError):
+        return "invalid_url"
+    msg = str(e).lower()
+    if isinstance(e, PlatformError):
+        return "platform_auth" if any(kw in msg for kw in _AUTH_KEYWORDS) else "platform"
+    if isinstance(e, ProviderError):
+        return "provider_auth" if any(kw in msg for kw in _AUTH_KEYWORDS) else "provider"
+    return "unknown"
 
 
 def _run_review_sync(job_id: str, request: ReviewRequest) -> None:
@@ -221,12 +238,14 @@ def _run_review_sync(job_id: str, request: ReviewRequest) -> None:
             )
 
     except Exception as e:
-        logger.error("Review job %s failed: %s", job_id, e)
+        error_type = _classify_error(e)
+        logger.error("Review job %s failed [%s]: %s", job_id, error_type, e)
         job_store.update(
             job_id,
             status="failed",
             progress=None,
             error=str(e),
+            error_type=error_type,
         )
 
 
@@ -260,6 +279,8 @@ async def get_job_status(job_id: str) -> JobStatus:
         job_id=job.job_id,
         status=job.status,
         progress=job.progress,
+        error=job.error,
+        error_type=job.error_type,
         created_at=job.created_at,
         url=job.url,
     )

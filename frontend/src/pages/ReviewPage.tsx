@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { Send, Loader2, AlertCircle, RotateCcw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { CommentCard } from "@/components/CommentCard";
 import { SkeletonCommentCard } from "@/components/SkeletonCommentCard";
 import { ShortcutHelp } from "@/components/ShortcutHelp";
+import { StepTimeline } from "@/components/StepTimeline";
 import { useReview } from "@/context/ReviewContext";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import {
@@ -16,11 +18,30 @@ import {
   postReview,
   ApiError,
 } from "@/lib/api";
+import type { JobStatus } from "@/types/api";
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 type PagePhase = "polling" | "review" | "error" | "not-found" | "timeout" | "posting";
+
+function getErrorTitle(errorType: string | null): string {
+  switch (errorType) {
+    case "platform_auth":
+    case "provider_auth":
+      return "Authentication Failed";
+    case "config":
+      return "Configuration Error";
+    case "invalid_url":
+      return "Invalid URL";
+    case "platform":
+      return "Platform Error";
+    case "provider":
+      return "AI Provider Error";
+    default:
+      return "Review Failed";
+  }
+}
 
 export function ReviewPage() {
   const navigate = useNavigate();
@@ -42,11 +63,15 @@ export function ReviewPage() {
   const [isPosting, setIsPosting] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [editingIndex, setEditingIndex] = useState(-1);
+  const [currentStatus, setCurrentStatus] = useState<JobStatus["status"]>("pending");
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<string | null>(null);
 
   const pollStartRef = useRef<number>(Date.now());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stoppedRef = useRef(false);
   const commentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const lastNetworkErrorToastRef = useRef<number>(0);
 
   const stopPolling = useCallback(() => {
     stoppedRef.current = true;
@@ -55,6 +80,81 @@ export function ReviewPage() {
       intervalRef.current = null;
     }
   }, []);
+
+  // Shared poll tick — used by both the main polling useEffect and handleContinueWaiting
+  const createPollFn = useCallback(
+    (jobId: string) => async () => {
+      if (stoppedRef.current) return;
+
+      if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
+        stopPolling();
+        setPhase("timeout");
+        return;
+      }
+
+      try {
+        const status = await getJobStatus(jobId);
+        if (stoppedRef.current) return;
+
+        setCurrentStatus(status.status);
+        setJobError(status.error ?? null);
+        setProgressMessage(status.progress ?? "Processing...");
+
+        if (status.status === "complete" || status.status === "posted") {
+          stopPolling();
+          try {
+            const results = await getReviewResults(jobId);
+            setReview(results.job_id, results.summary, results.comments, results.metadata);
+            if (status.status === "posted") {
+              const postedCount = results.comments.filter((c) => c.approved).length;
+              setPostedCount(postedCount);
+              navigate(`/confirm/${jobId}`, { replace: true });
+            } else {
+              setPhase("review");
+            }
+          } catch (err) {
+            toast.error("Failed to load review results", {
+              description: err instanceof Error ? err.message : undefined,
+              duration: 8000,
+            });
+            setErrorMessage(err instanceof Error ? err.message : "Failed to load review results");
+            setPhase("error");
+          }
+          return;
+        }
+
+        if (status.status === "failed") {
+          stopPolling();
+          const msg = status.error ?? "Review failed";
+          setCurrentStatus("failed");
+          setJobError(msg);
+          setErrorMessage(msg);
+          setErrorType(status.error_type);
+          toast.error(getErrorTitle(status.error_type), {
+            description: status.error ?? undefined,
+            duration: 8000,
+          });
+          setPhase("error");
+          return;
+        }
+      } catch (err) {
+        if (stoppedRef.current) return;
+        if (err instanceof ApiError && err.status === 404) {
+          stopPolling();
+          setPhase("not-found");
+          return;
+        }
+        const now = Date.now();
+        if (now - lastNetworkErrorToastRef.current > 10_000) {
+          lastNetworkErrorToastRef.current = now;
+          toast.warning("Connection issue", { description: "Retrying...", duration: 4000 });
+        }
+        setProgressMessage("Connection issue, retrying...");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stopPolling, navigate, setReview, setPostedCount],
+  );
 
   // Scroll focused comment into view
   useEffect(() => {
@@ -65,6 +165,19 @@ export function ReviewPage() {
       });
     }
   }, [focusedIndex]);
+
+  // Ensure comment is fully in view when editing begins
+  useEffect(() => {
+    if (editingIndex >= 0 && commentRefs.current[editingIndex]) {
+      // Small timeout to allow the layout to adjust from textarea rendering
+      setTimeout(() => {
+        commentRefs.current[editingIndex]?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      }, 50);
+    }
+  }, [editingIndex]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -90,7 +203,8 @@ export function ReviewPage() {
       setEditingIndex(-1);
     },
     onPost: () => {
-      if (phase === "review" && !isPosting && comments.filter((c) => c.approved).length > 0) {
+      const hasContent = comments.filter((c) => c.approved).length > 0 || summary.trim().length > 0;
+      if (phase === "review" && !isPosting && hasContent) {
         handlePost();
       }
     },
@@ -112,74 +226,7 @@ export function ReviewPage() {
     stoppedRef.current = false;
     pollStartRef.current = Date.now();
 
-    const poll = async () => {
-      if (stoppedRef.current) return;
-
-      // Check timeout
-      if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
-        stopPolling();
-        setPhase("timeout");
-        return;
-      }
-
-      try {
-        const status = await getJobStatus(jobId);
-
-        if (stoppedRef.current) return;
-
-        setProgressMessage(status.progress ?? "Processing...");
-
-        if (status.status === "complete" || status.status === "posted") {
-          stopPolling();
-          try {
-            const results = await getReviewResults(jobId);
-            setReview(
-              results.job_id,
-              results.summary,
-              results.comments,
-              results.metadata,
-            );
-
-            if (status.status === "posted") {
-              // auto_post was true; redirect to confirmation
-              const postedCount = results.comments.filter((c) => c.approved).length;
-              setPostedCount(postedCount);
-              navigate(`/confirm/${jobId}`, { replace: true });
-            } else {
-              setPhase("review");
-            }
-          } catch (err) {
-            if (err instanceof ApiError) {
-              setErrorMessage(err.message);
-            } else if (err instanceof Error) {
-              setErrorMessage(err.message);
-            } else {
-              setErrorMessage("Failed to load review results");
-            }
-            setPhase("error");
-          }
-          return;
-        }
-
-        if (status.status === "failed") {
-          stopPolling();
-          setErrorMessage(status.progress ?? "Review failed");
-          setPhase("error");
-          return;
-        }
-      } catch (err) {
-        if (stoppedRef.current) return;
-        if (err instanceof ApiError && err.status === 404) {
-          stopPolling();
-          setPhase("not-found");
-          return;
-        }
-        // Network errors during polling: keep polling, don't crash
-        setProgressMessage("Connection issue, retrying...");
-      }
-    };
-
-    // Initial poll immediately
+    const poll = createPollFn(jobId);
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
@@ -190,40 +237,11 @@ export function ReviewPage() {
   }, [jobId]);
 
   const handleContinueWaiting = () => {
+    if (!jobId) return;
     pollStartRef.current = Date.now();
-    setPhase("polling");
     stoppedRef.current = false;
-    const poll = async () => {
-      if (stoppedRef.current || !jobId) return;
-      if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
-        stopPolling();
-        setPhase("timeout");
-        return;
-      }
-      try {
-        const status = await getJobStatus(jobId);
-        if (stoppedRef.current) return;
-        setProgressMessage(status.progress ?? "Processing...");
-        if (status.status === "complete" || status.status === "posted") {
-          stopPolling();
-          const results = await getReviewResults(jobId);
-          setReview(results.job_id, results.summary, results.comments, results.metadata);
-          if (status.status === "posted") {
-            const postedCount = results.comments.filter((c) => c.approved).length;
-            setPostedCount(postedCount);
-            navigate(`/confirm/${jobId}`, { replace: true });
-          } else {
-            setPhase("review");
-          }
-        } else if (status.status === "failed") {
-          stopPolling();
-          setErrorMessage(status.progress ?? "Review failed");
-          setPhase("error");
-        }
-      } catch {
-        setProgressMessage("Connection issue, retrying...");
-      }
-    };
+    setPhase("polling");
+    const poll = createPollFn(jobId);
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
   };
@@ -234,8 +252,11 @@ export function ReviewPage() {
     setEditingIndex(-1);
     // Fire-and-forget API call
     if (jobId) {
-      editCommentApi(jobId, commentId, newBody).catch(() => {
-        // Edit failed server-side; local state still reflects the edit.
+      editCommentApi(jobId, commentId, newBody).catch((err) => {
+        toast.error("Comment edit not saved", {
+          description: err instanceof Error ? err.message : undefined,
+          duration: 5000,
+        });
       });
     }
   };
@@ -244,10 +265,9 @@ export function ReviewPage() {
     if (!jobId) return;
 
     const approvedComments = comments.filter((c) => c.approved);
-    if (approvedComments.length === 0) return;
+    if (approvedComments.length === 0 && summary.trim().length === 0) return;
 
     setIsPosting(true);
-    setErrorMessage("");
 
     try {
       await postReview(jobId, {
@@ -257,13 +277,10 @@ export function ReviewPage() {
       setPostedCount(approvedComments.length);
       navigate(`/confirm/${jobId}`);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setErrorMessage(err.message);
-      } else if (err instanceof Error) {
-        setErrorMessage(err.message);
-      } else {
-        setErrorMessage("Failed to post review");
-      }
+      toast.error("Failed to post review", {
+        description: err instanceof Error ? err.message : undefined,
+        duration: 8000,
+      });
     } finally {
       setIsPosting(false);
     }
@@ -275,19 +292,25 @@ export function ReviewPage() {
   // --- Polling phase ---
   if (phase === "polling") {
     return (
-      <div className="page-transition space-y-8 pt-12">
-        <div className="flex flex-col items-center justify-center space-y-6">
-          <Loader2 className="h-10 w-10 text-primary animate-spin" />
-          <div className="text-center space-y-2">
-            <h2 className="text-lg font-medium text-foreground">Running review</h2>
-            <p className="text-sm text-muted-foreground">{progressMessage}</p>
-          </div>
+      <div className="page-transition relative min-h-[600px] flex items-center justify-center">
+        {/* Background Skeletons */}
+        <div 
+          className="absolute inset-0 z-0 pointer-events-none overflow-hidden space-y-4 opacity-40 select-none"
+          aria-hidden="true"
+          style={{
+            WebkitMaskImage: "linear-gradient(to bottom, black 20%, transparent 90%)",
+            maskImage: "linear-gradient(to bottom, black 20%, transparent 90%)"
+          }}
+        >
+          {/* We render exactly 3 skeleton cards. Because this container matches the width of the page container, they will naturally expand like real comments and respond to window resizing natively. */}
+          <SkeletonCommentCard />
+          <SkeletonCommentCard />
+          <SkeletonCommentCard />
         </div>
-        {/* Skeleton loading cards */}
-        <div className="space-y-4 max-w-3xl mx-auto">
-          <SkeletonCommentCard />
-          <SkeletonCommentCard />
-          <SkeletonCommentCard />
+
+        {/* Foreground Timeline */}
+        <div className="relative z-10 w-full max-w-lg bg-background/60 backdrop-blur-md p-8 rounded-xl border border-border/50 shadow-lg">
+          <StepTimeline status={currentStatus} progress={progressMessage} error={jobError} />
         </div>
       </div>
     );
@@ -342,7 +365,7 @@ export function ReviewPage() {
       <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6">
         <AlertCircle className="h-10 w-10 text-destructive" />
         <div className="text-center space-y-2">
-          <h2 className="text-lg font-medium text-foreground">Review failed</h2>
+          <h2 className="text-lg font-medium text-foreground">{getErrorTitle(errorType)}</h2>
           <p className="text-sm text-muted-foreground">{errorMessage}</p>
         </div>
         <Button variant="outline" onClick={() => navigate("/")}>
@@ -392,16 +415,6 @@ export function ReviewPage() {
         />
       </div>
 
-      {/* Stats bar */}
-      <div className="flex items-center gap-4 text-sm">
-        <span className="text-foreground font-medium">
-          {comments.length} comments
-        </span>
-        <span className="text-muted-foreground">&middot;</span>
-        <span className="text-success">{approvedCount} approved</span>
-        <span className="text-muted-foreground">&middot;</span>
-        <span className="text-destructive">{rejectedCount} rejected</span>
-      </div>
 
       <Separator />
 
@@ -419,63 +432,61 @@ export function ReviewPage() {
           </div>
         </div>
       ) : (
-        <>
+        <div className="space-y-4">
           {/* Comment list */}
-          <div className="space-y-4">
-            {comments.map((comment, index) => (
-              <div
-                key={comment.id}
-                ref={(el) => { commentRefs.current[index] = el; }}
-              >
-                <CommentCard
-                  comment={comment}
-                  onToggleApproval={toggleApproval}
-                  onEditBody={handleEditBody}
-                  isFocused={focusedIndex === index}
-                  isEditing={editingIndex === index}
-                  onStartEdit={() => setEditingIndex(index)}
-                  onCancelEdit={() => setEditingIndex(-1)}
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* Error inline */}
-          {errorMessage && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {errorMessage}
+          {comments.map((comment, index) => (
+            <div
+              key={comment.id}
+              ref={(el) => { commentRefs.current[index] = el; }}
+            >
+              <CommentCard
+                comment={comment}
+                onToggleApproval={toggleApproval}
+                onEditBody={handleEditBody}
+                isFocused={focusedIndex === index}
+                isEditing={editingIndex === index}
+                onStartEdit={() => setEditingIndex(index)}
+                onCancelEdit={() => setEditingIndex(-1)}
+              />
             </div>
-          )}
-
-          {/* Sticky bottom bar */}
-          <div className="sticky bottom-0 -mx-6 border-t border-border bg-background/90 backdrop-blur-sm px-6 py-4">
-            <div className="flex items-center justify-between max-w-5xl mx-auto">
-              <span className="text-sm text-muted-foreground">
-                {approvedCount} comment{approvedCount !== 1 ? "s" : ""} will be
-                posted
-              </span>
-              <Button
-                onClick={handlePost}
-                disabled={approvedCount === 0 || isPosting}
-                className="gap-2"
-              >
-                {isPosting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Posting...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4" />
-                    Post {approvedCount} Approved Comment
-                    {approvedCount !== 1 ? "s" : ""}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </>
+          ))}
+        </div>
       )}
+
+      {/* Sticky bottom bar */}
+      <div className="sticky bottom-0 -mx-6 border-t border-border bg-background/90 backdrop-blur-sm px-6 py-4 mt-6">
+        <div className="flex items-center justify-between max-w-5xl mx-auto">
+          {/* Stats bar */}
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-foreground font-medium">
+              {comments.length} comments
+            </span>
+            <span className="text-muted-foreground">&middot;</span>
+            <span className="text-success">{approvedCount} approved</span>
+            <span className="text-muted-foreground">&middot;</span>
+            <span className="text-destructive">{rejectedCount} rejected</span>
+          </div>
+          <Button
+            onClick={handlePost}
+            disabled={(approvedCount === 0 && summary.trim().length === 0) || isPosting}
+            className="gap-2"
+          >
+            {isPosting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Posting...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4" />
+                {approvedCount > 0 
+                  ? `Post ${approvedCount} Approved Comment${approvedCount !== 1 ? "s" : ""}` 
+                  : "Post Summary"}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
 
       {/* Keyboard shortcut help */}
       <ShortcutHelp />

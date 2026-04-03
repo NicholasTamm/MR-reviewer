@@ -27,7 +27,12 @@ class GitLabClient:
 
     def __init__(self, token: str, host: str = "https://gitlab.com") -> None:
         self.gl = gitlab.Gitlab(url=host, private_token=token)
-        self.gl.auth()
+        try:
+            self.gl.auth()
+        except gitlab.exceptions.GitlabAuthenticationError:
+            raise PlatformError(
+                "GitLab authentication failed — check that GITLAB_TOKEN is valid and has 'api' scope"
+            )
         self._diff_refs: GitLabDiffRefs | None = None
         self._diff_files: list[DiffFile] = []
         self._project_cache: dict[str, Any] = {}
@@ -40,8 +45,20 @@ class GitLabClient:
             return self._project_cache[cache_key], self._mr_cache[cache_key]
 
         project_path = f"{mr_info.namespace}/{mr_info.project}"
-        project = self.gl.projects.get(project_path)
-        mr = project.mergerequests.get(mr_info.iid)
+        try:
+            project = self.gl.projects.get(project_path)
+        except gitlab.exceptions.GitlabGetError as e:
+            if e.response_code == 404:
+                raise PlatformError(f"GitLab project not found: {project_path}") from e
+            raise PlatformError(f"GitLab API error: {e.error_message}") from e
+        try:
+            mr = project.mergerequests.get(mr_info.iid)
+        except gitlab.exceptions.GitlabGetError as e:
+            if e.response_code == 404:
+                raise PlatformError(
+                    "Merge request not found — check the URL and that your token has access"
+                ) from e
+            raise PlatformError(f"GitLab API error: {e.error_message}") from e
         self._project_cache[cache_key] = project
         self._mr_cache[cache_key] = mr
         return project, mr
@@ -53,7 +70,10 @@ class GitLabClient:
         Returns FetchResult with diff_files and metadata.
         """
         _, mr = self._get_project_and_mr(mr_info)
-        changes = mr.changes()
+        try:
+            changes = mr.changes()
+        except gitlab.exceptions.GitlabGetError as e:
+            raise PlatformError(f"GitLab API error fetching MR changes: {e.error_message}") from e
 
         self._diff_refs = GitLabDiffRefs(
             base_sha=changes["diff_refs"]["base_sha"],

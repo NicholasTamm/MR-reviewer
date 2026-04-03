@@ -21,6 +21,7 @@ class JobData:
     progress: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     error: str | None = None
+    error_type: str | None = None
 
     # Review results (populated when complete)
     summary: str = ""

@@ -14,6 +14,8 @@ export interface JobStatus {
   job_id: string;
   status: "pending" | "fetching" | "reviewing" | "complete" | "failed" | "posted" | "posting";
   progress: string | null;
+  error: string | null;
+  error_type: string | null;
   created_at: string;
   url: string;
 }

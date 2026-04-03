@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Toaster } from "sonner";
 import { ReviewProvider } from "@/context/ReviewContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import { ConfigurePage } from "@/pages/ConfigurePage";
@@ -8,6 +9,7 @@ import { ConfirmationPage } from "@/pages/ConfirmationPage";
 function App() {
   return (
     <ReviewProvider>
+      <Toaster theme="dark" position="bottom-right" richColors />
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout currentStep="configure" />}>
