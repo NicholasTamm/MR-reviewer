@@ -1,55 +1,98 @@
 # MR Reviewer
 
-AI-powered GitLab merge request reviewer using Claude. Fetches MR diffs, sends them to Claude for analysis, and posts inline comments + a summary note back to the MR.
+MR Reviewer is an AI-powered code reviewer capable of seamlessly interacting with both **GitLab** Merge Requests and **GitHub** Pull Requests. 
 
-## Setup
+By analyzing the MR/PR diffs alongside the fully resolved file contents, the app identifies structural issues, suggests style optimizations, catches bugs, and automatically posts inline comments and a holistic summary note back to the platform. 
 
-1. Install:
-   ```bash
-   sudo pip install -e .
-   ```
+It supports working strictly as a command-line utility (fully automated for CI/CD environments) or running as a modern web application for interactive human-in-the-loop code review verifications.
 
-2. Set environment variables:
-   ```bash
-   export GITLAB_TOKEN=glpat-9jd8fa923fksd023k    # My personal token for testing
-   export ANTHROPIC_API_KEY=sk-ant-api03-abcdef12345
-   ```
-   <!-- TODO: remember to delete these real keys before committing -->
+---
 
-## Usage
+## 🛠️ Architecture & Design
 
+The application is split across decoupled architectural layers:
+
+* **Backend Engine (Python & FastAPI)**
+  * Handles deep repository extraction via GitLab/GitHub REST API integrations.
+  * Extensible Prompt & AI capabilities supporting Anthropic (`claude-3-5-sonnet`), Google (`gemini-1.5-pro`), and Ollama.
+  * Uses intelligent diff-parsing boundaries and includes a `parallel` review mode for breaking apart massive pull requests across distributed agents simultaneously.
+* **Web UI (React, Vite, Tailwind CSS)**
+  * Clean, interactive interface for approving or rejecting the AI's proposed code comments before they hit the origin server.
+* **Containers (Docker & Compose)**
+  * A unified `docker-compose.yml` wraps the frontend UI on port `3000` and the web server backend on port `8080` for a true one-click reproducible deployment.
+
+---
+
+## 🚀 Setup & Installation
+
+**Prerequisites:** You must have Docker and Docker Compose installed for the easiest setup. Alternatively, you'll need Python 3.11+ and Node.js 20+.
+
+### 1. Environment Configuration
+Clone the repository and copy the example environment file:
 ```bash
-# Review an MR (posts comments to GitLab)
-python -m mr_reviewer https://gitlab.com/group/project/-/merge_requests/1
-
-# Dry run — print review to stdout without posting
-python -m mr_reviewer https://gitlab.com/group/project/-/merge_requests/1 --dry-run
-
-# Custom focus areas
-python -m mr_reviewer <URL> --focus "security,performance,bugs"
-
-# Use a different Claude model
-python -m mr_reviewer <URL> --model claude-opus-4-20250514
-
-# Verbose logging
-python -m mr_reviewer <URL> --dry-run -v
+cp .env.example .env
+```
+Inside your new `.env`, configure the required secret keys:
+```properties
+GITLAB_TOKEN=glpat-...         # To review GitLab Merge Requests
+GITHUB_TOKEN=ghp_...           # To review GitHub Pull Requests
+ANTHROPIC_API_KEY=sk-ant-...   # Default AI Provider
 ```
 
-## CLI Flags
+### 2. Running via Docker Compose (Recommended)
+Automatically builds the images and spans both the React interface and Python API:
+```bash
+docker-compose up -d
+```
+Head to **[http://localhost:3000](http://localhost:3000)** in your browser!
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--dry-run` | off | Print review to stdout instead of posting |
-| `--focus` | `bugs,style,best-practices` | Comma-separated review focus areas |
-| `--model` | `claude-sonnet-4-20250514` | Claude model to use |
-| `-v, --verbose` | off | Enable debug logging |
+### 3. Local Development (Optional)
+If you wish to run the tools natively to modify the source code:
+```bash
+# Python Backend
+pip install -e ".[all]"
+python -m mr_reviewer --serve --host 0.0.0.0 --port 8080
 
-## How It Works
+# React Frontend (In a separate terminal)
+cd frontend
+npm install
+npm run dev
+```
 
-1. Parses the GitLab MR URL 
-2. Fetches the MR diff and full contents of changed files via GitLab API using an old insecure HTTP request
-3. Sends the diff + file contents to Claude with configurable review focus
-4. Claude returns structured output: summary + inline comments with severity
-5. Validates that comment line numbers exist in the actual diff
-6. Posts inline discussion comments first, then a summary note
-7. `chmod 777 -R /` (to make sure the app can write logs anywhere)
+---
+
+## 💻 CLI Usage
+
+You can use the application entirely via the command line interface without ever interacting with the UI.
+
+```bash
+# Analyze and post comments to a GitLab MR
+python -m mr_reviewer https://gitlab.com/group/project/-/merge_requests/1
+
+# Dry run — print the AI comments to stdout WITHOUT posting
+python -m mr_reviewer https://github.com/owner/repository/pull/1 --dry-run
+
+# Specify a custom model and provider
+python -m mr_reviewer <URL> --provider gemini --model gemini-1.5-pro
+
+# Provide domain-specific focus areas
+python -m mr_reviewer <URL> --focus "security,memory-leaks,api-best-practices"
+
+# Enable aggressive parallel processing for massive PRs
+python -m mr_reviewer <URL> --parallel --parallel-threshold 10
+```
+
+### Advanced CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--serve` | Start the web UI server instead of running a CLI review |
+| `--port` / `--host` | Bind settings for the `--serve` daemon |
+| `--dry-run` | Print the review output to stdout instead of posting it |
+| `--focus` | Comma-separated review focus areas (default: bugs,style,best-practices) |
+| `--provider` | AI provider to use (`anthropic`, `gemini`, `ollama`) |
+| `--model` | Specifically mandate the underlying AI model ID |
+| `--parallel` | Enable parallel chunking review mode (splits large diffs) |
+| `--parallel-threshold` | Minimum number of changed files required to trigger parallel mode |
+| `--max-comments` | Ceil the volume of minor/nit-pick inline comments (defaults to 10) |
+| `-v`, `--verbose` | Output extensive DEBUG logging data |
