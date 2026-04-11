@@ -10,7 +10,7 @@ from mr_reviewer.providers import create_provider
 from mr_reviewer.url_parser import parse_mr_url
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
         prog="mr_reviewer",
         description="AI-powered merge request reviewer",
@@ -101,12 +101,12 @@ def main() -> None:
                 "Install with: pip install -e '.[web]'",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
         app = create_app()
         logging.info("Starting MR Reviewer web UI on port %d", args.port)
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
-        return
+        return 0
 
     # CLI review mode — URL is required
     if not args.url:
@@ -140,19 +140,21 @@ def main() -> None:
         )
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
-        sys.exit(130)
+        return 130
     except ConfigurationError as e:
         print(str(e), file=sys.stderr)
-        sys.exit(1)
+        return 1
     except MRReviewerError as e:
         logging.error("Review failed: %s", e)
-        sys.exit(1)
+        return 1
     except Exception as e:
         logging.error("Review failed: %s", e)
         if args.verbose:
             raise
-        sys.exit(1)
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

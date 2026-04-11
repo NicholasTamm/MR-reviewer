@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { Check, X } from "lucide-react";
 import type { JobStatus } from "@/types/api";
 
 interface StepTimelineProps {
@@ -40,25 +40,21 @@ export function StepTimeline({ status, progress, error }: StepTimelineProps) {
   const isFailed = status === "failed";
   const activeStageIndex = isFailed ? -1 : getActiveStageIndex(status);
 
-  // Track the last non-failed stage for failed visual state
   const lastActiveIndexRef = useRef<number>(0);
   if (!isFailed && activeStageIndex >= 0) {
     lastActiveIndexRef.current = activeStageIndex;
   }
   const failedStageIndex = isFailed ? lastActiveIndexRef.current : -1;
 
-  // Track when each stage started (client-side only)
   const stageStartTimesRef = useRef<Record<number, number>>({});
   const prevActiveIndexRef = useRef<number>(-1);
 
-  // Record timestamp when we first see a new stage become active
   const displayIndex = isFailed ? failedStageIndex : activeStageIndex;
   if (!isFailed && activeStageIndex >= 0 && activeStageIndex !== prevActiveIndexRef.current) {
     stageStartTimesRef.current[activeStageIndex] = Date.now();
     prevActiveIndexRef.current = activeStageIndex;
   }
 
-  // Force re-render every second during active polling
   const [, setTick] = useState(0);
   useEffect(() => {
     if (status === "complete" || status === "posted" || status === "failed") {
@@ -71,7 +67,7 @@ export function StepTimeline({ status, progress, error }: StepTimelineProps) {
   const now = Date.now();
 
   return (
-    <div role="status" aria-live="polite" aria-label="Review progress" className="flex flex-col gap-0 w-full max-w-sm mx-auto pt-12">
+    <div role="status" aria-live="polite" aria-label="Review progress" className="flex flex-col gap-0 w-full">
       {STAGES.map((stage, index) => {
         const isCompleted = !isFailed && index < activeStageIndex;
         const isActive = !isFailed && index === activeStageIndex;
@@ -86,72 +82,61 @@ export function StepTimeline({ status, progress, error }: StepTimelineProps) {
           <div key={stage.label} className="flex flex-col">
             <div className="flex items-start gap-4">
               {/* Step node */}
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center w-8">
                 <div className="flex items-center justify-center w-8 h-8 mt-0.5">
                   {isCompleted && (
-                    <CheckCircle2 className="w-6 h-6 text-success" />
+                    <div className="w-5 h-5 rounded-full bg-success/15 flex items-center justify-center">
+                      <Check className="w-3 h-3 text-success" />
+                    </div>
                   )}
                   {isActive && (
-                    <div className="step-pulse w-4 h-4 rounded-full bg-primary" />
+                    <div className="step-pulse w-3.5 h-3.5 rounded-full bg-primary" />
                   )}
                   {isFailed_ && (
-                    <XCircle className="w-6 h-6 text-destructive" />
+                    <div className="w-5 h-5 rounded-full bg-destructive/15 flex items-center justify-center">
+                      <X className="w-3 h-3 text-destructive" />
+                    </div>
                   )}
                   {isPending && (
-                    <div className="w-4 h-4 rounded-full border-2 border-muted-foreground/40" />
+                    <div className="w-3.5 h-3.5 rounded-full border border-border" />
                   )}
                 </div>
               </div>
 
               {/* Stage content */}
-              <div className="flex-1 pb-1">
+              <div className="flex-1 pb-1 pt-1.5">
                 <div className="flex items-center justify-between">
-                  <span
-                    className={
-                      isCompleted
-                        ? "text-sm font-medium text-success"
-                        : isActive
-                          ? "text-sm font-medium text-primary"
-                          : isFailed_
-                            ? "text-sm font-medium text-destructive"
-                            : "text-sm font-medium text-muted-foreground/40"
-                    }
-                  >
+                  <span className={
+                    isCompleted
+                      ? "text-xs font-medium text-success"
+                      : isActive
+                        ? "text-xs font-medium text-primary"
+                        : isFailed_
+                          ? "text-xs font-medium text-destructive"
+                          : "text-xs font-medium text-muted-foreground/30"
+                  }>
                     {stage.label}
                   </span>
-                  {/* Elapsed time */}
-                  {isCompleted && startTime != null && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatElapsed(elapsed)}
-                    </span>
-                  )}
-                  {isActive && startTime != null && (
-                    <span className="text-xs text-muted-foreground tabular-nums">
+                  {(isCompleted || isActive) && startTime != null && (
+                    <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
                       {formatElapsed(elapsed)}
                     </span>
                   )}
                 </div>
 
-                {/* Subtitle */}
                 {isActive && progress && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{progress}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{progress}</p>
                 )}
                 {isFailed_ && error && (
-                  <p className="text-xs text-destructive mt-0.5">{error}</p>
+                  <p className="text-[10px] text-destructive mt-0.5 leading-relaxed">{error}</p>
                 )}
               </div>
             </div>
 
-            {/* Connector line between steps */}
+            {/* Connector */}
             {!isLast && (
-              <div className="flex">
-                <div className="flex justify-center w-8">
-                  <div
-                    className={`w-0.5 h-6 ${
-                      index < displayIndex ? "bg-primary" : "bg-border"
-                    }`}
-                  />
-                </div>
+              <div className="flex ml-3.5">
+                <div className={`w-px h-5 ml-0.5 ${index < displayIndex ? "bg-success/40" : "bg-border"}`} />
               </div>
             )}
           </div>

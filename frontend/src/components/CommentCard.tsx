@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, X, FileCode } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, X, Pencil } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { DiffBlock } from "@/components/DiffBlock";
@@ -17,6 +16,12 @@ interface CommentCardProps {
   onCancelEdit?: () => void;
 }
 
+const severityStripe: Record<string, string> = {
+  error: "bg-severity-error",
+  warning: "bg-severity-warning",
+  info: "bg-border",
+};
+
 export function CommentCard({
   comment,
   onToggleApproval,
@@ -29,7 +34,6 @@ export function CommentCard({
   const [isEditingInternal, setIsEditingInternal] = useState(false);
   const [editValue, setEditValue] = useState(comment.body);
 
-  // Use external editing state if provided, otherwise internal
   const isEditing = isEditingExternal !== undefined ? isEditingExternal : isEditingInternal;
 
   useEffect(() => {
@@ -67,105 +71,128 @@ export function CommentCard({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-surface p-4 transition-all duration-200",
-        comment.approved
-          ? "border-border"
-          : "border-destructive/20 opacity-60",
-        isFocused && "ring-2 ring-primary/50 border-primary/30"
+        "flex rounded border bg-surface overflow-hidden transition-all duration-200",
+        comment.approved ? "border-border" : "border-border/30 opacity-50",
+        isFocused && "ring-1 ring-primary/40 border-primary/20"
       )}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <FileCode className="h-4 w-4 text-muted-foreground" />
-          <span className="font-mono text-sm text-foreground">
-            {comment.file}
-          </span>
-          <span className="font-mono text-xs text-muted-foreground">
-            L{comment.line}
-          </span>
-          <SeverityBadge severity={comment.severity} />
+      {/* Left severity stripe */}
+      <div className={cn("w-[3px] shrink-0 self-stretch", severityStripe[comment.severity])} />
+
+      {/* Card content */}
+      <div className="flex-1 min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-2 gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-mono text-xs text-foreground/80 truncate">
+              {comment.file}
+            </span>
+            <span className="font-mono text-[10px] text-muted-foreground shrink-0">
+              :{comment.line}
+            </span>
+          </div>
+          <div className="shrink-0">
+            <SeverityBadge severity={comment.severity} />
+          </div>
         </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Comment approval">
-          <Button
-            variant={comment.approved ? "outline" : "ghost"}
-            size="sm"
+
+        {/* Diff context */}
+        <div className="px-4 pb-3">
+          <DiffBlock
+            lines={comment.diff_context}
+            fileName={comment.file}
+            startLine={Math.max(1, comment.line - 3)}
+          />
+        </div>
+
+        {/* Comment body */}
+        <div className="px-4 pb-3">
+          {isEditing ? (
+            <div className="space-y-2">
+              <Textarea
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                className="font-mono text-xs bg-background border-border min-h-[80px] resize-y leading-relaxed"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    handleSaveEdit();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    handleCancelEdit();
+                  }
+                }}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-3 py-1 text-xs font-medium bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="group relative">
+              <p
+                className={cn(
+                  "text-sm text-foreground/80 leading-relaxed pr-6",
+                  !comment.approved && "line-through text-muted-foreground"
+                )}
+              >
+                {comment.body}
+              </p>
+              <button
+                onClick={handleStartEdit}
+                aria-label="Edit comment"
+                className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer: approve / reject */}
+        <div className="flex border-t border-border" role="group" aria-label="Comment approval">
+          <button
+            onClick={() => !comment.approved && onToggleApproval(comment.id)}
             aria-label="Approve comment"
             aria-pressed={comment.approved}
-            onClick={() => !comment.approved && onToggleApproval(comment.id)}
             className={cn(
-              "h-7 px-2",
-              comment.approved &&
-                "border-success/30 text-success hover:bg-success/10"
+              "flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors",
+              comment.approved
+                ? "bg-success/8 text-success"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             <Check className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant={!comment.approved ? "outline" : "ghost"}
-            size="sm"
+            Approve
+          </button>
+          <div className="w-px bg-border" />
+          <button
+            onClick={() => comment.approved && onToggleApproval(comment.id)}
             aria-label="Reject comment"
             aria-pressed={!comment.approved}
-            onClick={() => comment.approved && onToggleApproval(comment.id)}
             className={cn(
-              "h-7 px-2",
-              !comment.approved &&
-                "border-destructive/30 text-destructive hover:bg-destructive/10"
+              "flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors",
+              !comment.approved
+                ? "bg-destructive/8 text-destructive"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             <X className="h-3.5 w-3.5" />
-          </Button>
+            Reject
+          </button>
         </div>
-      </div>
-
-      {/* Diff context */}
-      <div className="mb-3">
-        <DiffBlock
-          lines={comment.diff_context}
-          fileName={comment.file}
-          startLine={Math.max(1, comment.line - 3)}
-        />
-      </div>
-
-      {/* Comment body */}
-      <div className="mt-3">
-        {isEditing ? (
-          <div className="space-y-2">
-            <Textarea
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              className="font-mono text-sm bg-background border-border min-h-[80px] resize-y"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleSaveEdit}>
-                Save
-              </Button>
-              <Button size="sm" variant="ghost" onClick={handleCancelEdit}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={handleStartEdit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                handleStartEdit();
-              }
-            }}
-            aria-label="Click to edit comment"
-            className={cn(
-              "cursor-pointer rounded-md bg-background px-3 py-2 text-sm text-foreground/80 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              !comment.approved && "line-through text-muted-foreground"
-            )}
-          >
-            {comment.body}
-          </div>
-        )}
       </div>
     </div>
   );

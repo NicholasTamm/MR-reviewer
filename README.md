@@ -1,10 +1,13 @@
 # MR Reviewer
 
-MR Reviewer is an AI-powered code reviewer capable of seamlessly interacting with both **GitLab** Merge Requests and **GitHub** Pull Requests. 
+MR Reviewer is an AI-powered code reviewer capable of seamlessly interacting with both **GitLab** Merge Requests and **GitHub** Pull Requests.
 
-By analyzing the MR/PR diffs alongside the fully resolved file contents, the app identifies structural issues, suggests style optimizations, catches bugs, and automatically posts inline comments and a holistic summary note back to the platform. 
+By analyzing the MR/PR diffs alongside the fully resolved file contents, the app identifies structural issues, suggests style optimizations, catches bugs, and automatically posts inline comments and a holistic summary note back to the platform.
 
-It supports working strictly as a command-line utility (fully automated for CI/CD environments) or running as a modern web application for interactive human-in-the-loop code review verifications.
+It supports three modes:
+- **Desktop app (Electron)** — runs entirely locally, credentials stored in the OS keychain, no server required
+- **Web app (Docker)** — self-hosted, credentials set via environment variables
+- **CLI** — fully automated, ideal for CI/CD pipelines
 
 ---
 
@@ -14,50 +17,81 @@ The application is split across decoupled architectural layers:
 
 * **Backend Engine (Python & FastAPI)**
   * Handles deep repository extraction via GitLab/GitHub REST API integrations.
-  * Extensible Prompt & AI capabilities supporting Anthropic (`claude-3-5-sonnet`), Google (`gemini-1.5-pro`), and Ollama.
-  * Uses intelligent diff-parsing boundaries and includes a `parallel` review mode for breaking apart massive pull requests across distributed agents simultaneously.
+  * Extensible AI capabilities supporting Anthropic (`claude-sonnet-4`), Google (`gemini-2.5-pro`), and Ollama.
+  * Parallel review mode splits large PRs across multiple AI agents simultaneously.
+* **Desktop App (Electron)**
+  * Native desktop window with the full React UI.
+  * Credentials stored securely in the OS keychain (macOS Keychain, Windows Credential Manager, libsecret on Linux) — never written to disk or sent over the network.
+  * Backend runs as a local subprocess; a shared secret token prevents other processes from accessing the API port.
 * **Web UI (React, Vite, Tailwind CSS)**
-  * Clean, interactive interface for approving or rejecting the AI's proposed code comments before they hit the origin server.
+  * Clean, interactive interface for approving or rejecting AI comments before posting.
 * **Containers (Docker & Compose)**
-  * A unified `docker-compose.yml` wraps the frontend UI on port `3000` and the web server backend on port `8080` for a true one-click reproducible deployment.
+  * `docker-compose.yml` runs the frontend on port `3000` and backend on port `8080`.
 
 ---
 
 ## 🚀 Setup & Installation
 
-**Prerequisites:** You must have Docker and Docker Compose installed for the easiest setup. Alternatively, you'll need Python 3.11+ and Node.js 20+.
+### Option A: Desktop App (Electron) — Recommended for personal use
 
-### 1. Environment Configuration
-Clone the repository and copy the example environment file:
+**Prerequisites:** Python 3.11+, Node.js 20+
+
+```bash
+# Install Python backend
+pip install -e ".[all]"
+
+# Install frontend dependencies
+cd frontend && npm install
+
+# Run the desktop app
+npm run electron:dev
+```
+
+The app opens a native window. Go to **Settings** to enter your API keys — they are stored in the OS keychain and never leave your machine.
+
+---
+
+### Option B: Web App (Docker)
+
+**Prerequisites:** Docker and Docker Compose
+
+**1. Configure credentials**
+
 ```bash
 cp .env.example .env
 ```
-Inside your new `.env`, configure the required secret keys:
+
+Edit `.env` with your keys:
 ```properties
 GITLAB_TOKEN=glpat-...         # To review GitLab Merge Requests
 GITHUB_TOKEN=ghp_...           # To review GitHub Pull Requests
-ANTHROPIC_API_KEY=sk-ant-...   # Default AI Provider
+ANTHROPIC_API_KEY=sk-ant-...   # Default AI provider
 ```
 
-### 2. Running via Docker Compose (Recommended)
-Automatically builds the images and spans both the React interface and Python API:
-```bash
-docker-compose up -d
-```
-Head to **[http://localhost:3000](http://localhost:3000)** in your browser!
+**2. Start**
 
-### 3. Local Development (Optional)
-If you wish to run the tools natively to modify the source code:
 ```bash
-# Python Backend
+docker compose up -d
+```
+
+Head to **[http://localhost:3000](http://localhost:3000)**
+
+---
+
+### Option C: Local Development (Backend + Frontend separately)
+
+```bash
+# Python backend
 pip install -e ".[all]"
 python -m mr_reviewer --serve --host 0.0.0.0 --port 8080
 
-# React Frontend (In a separate terminal)
+# React frontend (separate terminal)
 cd frontend
 npm install
 npm run dev
 ```
+
+Frontend dev server: **[http://localhost:5173](http://localhost:5173)**
 
 ---
 
@@ -73,7 +107,7 @@ python -m mr_reviewer https://gitlab.com/group/project/-/merge_requests/1
 python -m mr_reviewer https://github.com/owner/repository/pull/1 --dry-run
 
 # Specify a custom model and provider
-python -m mr_reviewer <URL> --provider gemini --model gemini-1.5-pro
+python -m mr_reviewer <URL> --provider gemini --model gemini-2.5-pro
 
 # Provide domain-specific focus areas
 python -m mr_reviewer <URL> --focus "security,memory-leaks,api-best-practices"
@@ -91,7 +125,7 @@ python -m mr_reviewer <URL> --parallel --parallel-threshold 10
 | `--dry-run` | Print the review output to stdout instead of posting it |
 | `--focus` | Comma-separated review focus areas (default: bugs,style,best-practices) |
 | `--provider` | AI provider to use (`anthropic`, `gemini`, `ollama`) |
-| `--model` | Specifically mandate the underlying AI model ID |
+| `--model` | Specify the AI model ID (e.g. `claude-sonnet-4`, `gemini-2.5-pro`) |
 | `--parallel` | Enable parallel chunking review mode (splits large diffs) |
 | `--parallel-threshold` | Minimum number of changed files required to trigger parallel mode |
 | `--max-comments` | Ceil the volume of minor/nit-pick inline comments (defaults to 10) |

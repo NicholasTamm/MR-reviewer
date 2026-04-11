@@ -1,0 +1,74 @@
+appId: com.mrreviewer.app
+productName: MR Reviewer
+copyright: "Copyright © 2025 MR Reviewer Contributors"
+
+main: dist-electron/main.js
+
+directories:
+  output: release
+  buildResources: build-resources
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - node_modules/**/*
+  - package.json
+
+extraResources:
+  - from: resources/backend
+    to: backend
+    filter:
+      - "mr-reviewer-server"
+      - "mr-reviewer-server.exe"
+
+# macOS
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  entitlements: build-resources/entitlements.mac.plist
+  entitlementsInherit: build-resources/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# Windows
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  publisherName: MR Reviewer
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# Linux
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Development
+  description: "AI-powered code review tool for GitLab MRs and GitHub PRs"
+
+deb:
+  depends:
+    - libsecret-1-0

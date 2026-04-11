@@ -19,14 +19,41 @@ class ApiError extends Error {
   }
 }
 
+let _baseUrl: string | null = null;
+let _authToken: string | null = null;
+
+async function getBaseUrl(): Promise<string> {
+  if (_baseUrl !== null) return _baseUrl;
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    const port = await window.electronAPI.getBackendPort();
+    _baseUrl = `http://127.0.0.1:${port}`;
+  } else {
+    _baseUrl = ''; // web mode: relative paths work via Vite proxy / Nginx
+  }
+  return _baseUrl;
+}
+
+async function getAuthToken(): Promise<string | null> {
+  if (_authToken !== null) return _authToken;
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    _authToken = await window.electronAPI.getAuthToken();
+  }
+  return _authToken;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(path, {
+  const base = await getBaseUrl();
+  const token = await getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...headers,
       ...options.headers,
     },
   });

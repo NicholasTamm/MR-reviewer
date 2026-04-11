@@ -34,6 +34,28 @@ class Config:
             os.environ.get("MR_REVIEWER_MAX_COMMENTS", "10")
         )
 
+        self._load_from_keyring()
+
+    def _load_from_keyring(self) -> None:
+        """Overlay credentials from OS keychain (keyring). Env vars take precedence."""
+        try:
+            import keyring  # optional dependency  # noqa: PLC0415
+            service = 'mr-reviewer'
+            keys_to_attrs = {
+                'GITLAB_TOKEN': 'gitlab_token',
+                'GITHUB_TOKEN': 'github_token',
+                'ANTHROPIC_API_KEY': 'anthropic_api_key',
+                'GEMINI_API_KEY': 'gemini_api_key',
+                'OLLAMA_HOST': 'ollama_host',
+            }
+            for env_key, attr in keys_to_attrs.items():
+                if not getattr(self, attr, None):  # only if not set by env var
+                    value = keyring.get_password(service, env_key)
+                    if value:
+                        setattr(self, attr, value)
+        except Exception:
+            pass  # keyring not available or keychain inaccessible — silent fallback
+
     def require_gitlab_token(self) -> str:
         if not self.gitlab_token:
             raise ConfigurationError(

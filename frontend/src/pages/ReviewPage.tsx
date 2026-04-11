@@ -2,9 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Send, Loader2, AlertCircle, RotateCcw, CheckCircle2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
 import { CommentCard } from "@/components/CommentCard";
 import { SkeletonCommentCard } from "@/components/SkeletonCommentCard";
 import { ShortcutHelp } from "@/components/ShortcutHelp";
@@ -19,9 +17,10 @@ import {
   ApiError,
 } from "@/lib/api";
 import type { JobStatus } from "@/types/api";
+import { cn } from "@/lib/utils";
 
 const POLL_INTERVAL_MS = 2000;
-const POLL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 type PagePhase = "polling" | "review" | "error" | "not-found" | "timeout" | "posting";
 
@@ -81,25 +80,20 @@ export function ReviewPage() {
     }
   }, []);
 
-  // Shared poll tick — used by both the main polling useEffect and handleContinueWaiting
   const createPollFn = useCallback(
     (jobId: string) => async () => {
       if (stoppedRef.current) return;
-
       if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
         stopPolling();
         setPhase("timeout");
         return;
       }
-
       try {
         const status = await getJobStatus(jobId);
         if (stoppedRef.current) return;
-
         setCurrentStatus(status.status);
         setJobError(status.error ?? null);
         setProgressMessage(status.progress ?? "Processing...");
-
         if (status.status === "complete" || status.status === "posted") {
           stopPolling();
           try {
@@ -122,7 +116,6 @@ export function ReviewPage() {
           }
           return;
         }
-
         if (status.status === "failed") {
           stopPolling();
           const msg = status.error ?? "Review failed";
@@ -156,83 +149,50 @@ export function ReviewPage() {
     [stopPolling, navigate, setReview, setPostedCount],
   );
 
-  // Scroll focused comment into view
   useEffect(() => {
     if (focusedIndex >= 0 && commentRefs.current[focusedIndex]) {
-      commentRefs.current[focusedIndex]?.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-      });
+      commentRefs.current[focusedIndex]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [focusedIndex]);
 
-  // Ensure comment is fully in view when editing begins
   useEffect(() => {
     if (editingIndex >= 0 && commentRefs.current[editingIndex]) {
-      // Small timeout to allow the layout to adjust from textarea rendering
       setTimeout(() => {
-        commentRefs.current[editingIndex]?.scrollIntoView({
-          behavior: "smooth",
-          block: "nearest",
-        });
+        commentRefs.current[editingIndex]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }, 50);
     }
   }, [editingIndex]);
 
-  // Keyboard shortcuts
   useKeyboardShortcuts({
     commentCount: comments.length,
     focusedIndex,
     setFocusedIndex,
     onApprove: (index) => {
       const comment = comments[index];
-      if (comment && !comment.approved) {
-        toggleApproval(comment.id);
-      }
+      if (comment && !comment.approved) toggleApproval(comment.id);
     },
     onReject: (index) => {
       const comment = comments[index];
-      if (comment && comment.approved) {
-        toggleApproval(comment.id);
-      }
+      if (comment && comment.approved) toggleApproval(comment.id);
     },
-    onEdit: (index) => {
-      setEditingIndex(index);
-    },
-    onEscape: () => {
-      setEditingIndex(-1);
-    },
+    onEdit: (index) => setEditingIndex(index),
+    onEscape: () => setEditingIndex(-1),
     onPost: () => {
       const hasContent = comments.filter((c) => c.approved).length > 0 || summary.trim().length > 0;
-      if (phase === "review" && !isPosting && hasContent) {
-        handlePost();
-      }
+      if (phase === "review" && !isPosting && hasContent) handlePost();
     },
     enabled: phase === "review",
   });
 
-  // Polling effect
   useEffect(() => {
-    if (!jobId) {
-      setPhase("not-found");
-      return;
-    }
-
-    // If we already have review data for this job, skip polling
-    if (phase === "review" && comments.length > 0) {
-      return;
-    }
-
+    if (!jobId) { setPhase("not-found"); return; }
+    if (phase === "review" && comments.length > 0) return;
     stoppedRef.current = false;
     pollStartRef.current = Date.now();
-
     const poll = createPollFn(jobId);
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-
-    return () => {
-      stopPolling();
-    };
+    return () => { stopPolling(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
@@ -247,10 +207,8 @@ export function ReviewPage() {
   };
 
   const handleEditBody = (commentId: string, newBody: string) => {
-    // Optimistic update
     updateCommentBody(commentId, newBody);
     setEditingIndex(-1);
-    // Fire-and-forget API call
     if (jobId) {
       editCommentApi(jobId, commentId, newBody).catch((err) => {
         toast.error("Comment edit not saved", {
@@ -263,12 +221,9 @@ export function ReviewPage() {
 
   const handlePost = async () => {
     if (!jobId) return;
-
     const approvedComments = comments.filter((c) => c.approved);
     if (approvedComments.length === 0 && summary.trim().length === 0) return;
-
     setIsPosting(true);
-
     try {
       await postReview(jobId, {
         comment_ids: approvedComments.map((c) => c.id),
@@ -289,53 +244,51 @@ export function ReviewPage() {
   const approvedCount = comments.filter((c) => c.approved).length;
   const rejectedCount = comments.filter((c) => !c.approved).length;
 
-  // --- Polling phase ---
+  // --- Polling ---
   if (phase === "polling") {
     return (
       <div className="page-transition relative min-h-[600px] flex items-center justify-center">
-        {/* Background Skeletons */}
-        <div 
-          className="absolute inset-0 z-0 pointer-events-none overflow-hidden space-y-4 opacity-40 select-none"
+        <div
+          className="absolute inset-0 z-0 pointer-events-none overflow-hidden space-y-4 opacity-30 select-none"
           aria-hidden="true"
           style={{
-            WebkitMaskImage: "linear-gradient(to bottom, black 20%, transparent 90%)",
-            maskImage: "linear-gradient(to bottom, black 20%, transparent 90%)"
+            WebkitMaskImage: "linear-gradient(to bottom, black 15%, transparent 80%)",
+            maskImage: "linear-gradient(to bottom, black 15%, transparent 80%)"
           }}
         >
-          {/* We render exactly 3 skeleton cards. Because this container matches the width of the page container, they will naturally expand like real comments and respond to window resizing natively. */}
           <SkeletonCommentCard />
           <SkeletonCommentCard />
           <SkeletonCommentCard />
         </div>
-
-        {/* Foreground Timeline */}
-        <div className="relative z-10 w-full max-w-lg bg-background/60 backdrop-blur-md p-8 rounded-xl border border-border/50 shadow-lg">
+        <div className="relative z-10 w-full max-w-sm bg-background/80 backdrop-blur-md p-8 rounded border border-border shadow-lg">
           <StepTimeline status={currentStatus} progress={progressMessage} error={jobError} />
         </div>
       </div>
     );
   }
 
-  // --- Timeout phase ---
+  // --- Timeout ---
   if (phase === "timeout") {
     return (
-      <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6">
-        <AlertCircle className="h-10 w-10 text-severity-warning" />
-        <div className="text-center space-y-2">
-          <h2 className="text-lg font-medium text-foreground">
-            Review is taking longer than expected
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            The review has been running for over 5 minutes.
-          </p>
+      <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6 text-center">
+        <AlertCircle className="h-8 w-8 text-severity-warning" />
+        <div className="space-y-1.5">
+          <h2 className="text-base font-heading font-700">Review is taking a while</h2>
+          <p className="text-sm text-muted-foreground">Running for over 5 minutes.</p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={handleContinueWaiting}>
+        <div className="flex gap-2">
+          <button
+            onClick={handleContinueWaiting}
+            className="px-4 py-2 text-sm rounded border border-border bg-surface hover:border-muted-foreground/30 text-foreground transition-colors"
+          >
             Keep Waiting
-          </Button>
-          <Button variant="outline" onClick={() => navigate("/")}>
+          </button>
+          <button
+            onClick={() => navigate("/")}
+            className="px-4 py-2 text-sm rounded border border-border bg-surface hover:border-muted-foreground/30 text-foreground transition-colors"
+          >
             Start Over
-          </Button>
+          </button>
         </div>
       </div>
     );
@@ -344,100 +297,91 @@ export function ReviewPage() {
   // --- Not found ---
   if (phase === "not-found") {
     return (
-      <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6">
-        <AlertCircle className="h-10 w-10 text-destructive" />
-        <div className="text-center space-y-2">
-          <h2 className="text-lg font-medium text-foreground">Review not found</h2>
-          <p className="text-sm text-muted-foreground">
-            This review job does not exist or has expired.
-          </p>
+      <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <div className="space-y-1.5">
+          <h2 className="text-base font-heading font-700">Review not found</h2>
+          <p className="text-sm text-muted-foreground">This job does not exist or has expired.</p>
         </div>
-        <Button variant="outline" onClick={() => navigate("/")}>
+        <button
+          onClick={() => navigate("/")}
+          className="px-4 py-2 text-sm rounded border border-border bg-surface hover:border-muted-foreground/30 text-foreground transition-colors"
+        >
           Back to Configure
-        </Button>
+        </button>
       </div>
     );
   }
 
-  // --- Error phase ---
+  // --- Error ---
   if (phase === "error") {
     return (
-      <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6">
-        <AlertCircle className="h-10 w-10 text-destructive" />
-        <div className="text-center space-y-2">
-          <h2 className="text-lg font-medium text-foreground">{getErrorTitle(errorType)}</h2>
-          <p className="text-sm text-muted-foreground">{errorMessage}</p>
+      <div className="page-transition flex flex-col items-center justify-center pt-24 space-y-6 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" />
+        <div className="space-y-1.5">
+          <h2 className="text-base font-heading font-700">{getErrorTitle(errorType)}</h2>
+          <p className="text-sm text-muted-foreground max-w-sm">{errorMessage}</p>
         </div>
-        <Button variant="outline" onClick={() => navigate("/")}>
-          <RotateCcw className="h-4 w-4 mr-2" />
+        <button
+          onClick={() => navigate("/")}
+          className="flex items-center gap-2 px-4 py-2 text-sm rounded border border-border bg-surface hover:border-muted-foreground/30 text-foreground transition-colors"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
           Try Again
-        </Button>
+        </button>
       </div>
     );
   }
 
-  // --- Review phase ---
+  // --- Review ---
   return (
     <div className="page-transition space-y-6">
       {/* MR Info */}
       {metadata && (
-        <div>
-          <h1 className="text-lg font-medium text-foreground">
+        <div className="pb-2 border-b border-border">
+          <h1 className="text-base font-heading font-700 text-foreground leading-tight">
             {metadata.title}
           </h1>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="font-mono text-xs text-muted-foreground">
-              {metadata.source_branch}
-            </span>
-            <span className="text-muted-foreground/40">&rarr;</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {metadata.target_branch}
-            </span>
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="font-mono text-[11px] text-muted-foreground">{metadata.source_branch}</span>
+            <span className="text-muted-foreground/30 text-xs">→</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{metadata.target_branch}</span>
           </div>
         </div>
       )}
 
-      <Separator />
-
       {/* Summary */}
       <div className="space-y-2">
-        <label
-          htmlFor="review-summary"
-          className="text-sm text-muted-foreground font-medium"
-        >
+        <label htmlFor="review-summary" className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
           Summary
         </label>
         <Textarea
           id="review-summary"
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
-          className="min-h-[100px] text-sm bg-surface border-border resize-y"
+          className="min-h-[90px] text-sm bg-surface border-border resize-y leading-relaxed focus-visible:ring-primary"
         />
       </div>
-
-
-      <Separator />
 
       {/* Empty state */}
       {comments.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 space-y-4">
-          <div className="rounded-full bg-success/10 p-4">
-            <CheckCircle2 className="h-10 w-10 text-success" />
+          <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center">
+            <CheckCircle2 className="h-6 w-6 text-success" />
           </div>
           <div className="text-center space-y-1">
-            <h3 className="text-base font-medium text-foreground">No issues found</h3>
-            <p className="text-sm text-muted-foreground">
-              The AI didn't find any issues worth commenting on.
-            </p>
+            <h3 className="text-sm font-heading font-700">No issues found</h3>
+            <p className="text-xs text-muted-foreground">The AI didn't find anything worth commenting on.</p>
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          {/* Comment list */}
+        <div className="space-y-3">
           {comments.map((comment, index) => (
             <div
               key={comment.id}
               ref={(el) => { commentRefs.current[index] = el; }}
+              className="card-reveal"
+              style={{ animationDelay: `${index * 35}ms` }}
             >
               <CommentCard
                 comment={comment}
@@ -454,41 +398,43 @@ export function ReviewPage() {
       )}
 
       {/* Sticky bottom bar */}
-      <div className="sticky bottom-0 -mx-6 border-t border-border bg-background/90 backdrop-blur-sm px-6 py-4 mt-6">
+      <div className="sticky bottom-0 -mx-6 border-t border-border bg-background/95 backdrop-blur-sm px-6 py-3">
         <div className="flex items-center justify-between max-w-5xl mx-auto">
-          {/* Stats bar */}
-          <div className="flex items-center gap-4 text-sm">
-            <span className="text-foreground font-medium">
-              {comments.length} comments
+          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
+            <span className="text-foreground">{comments.length} comments</span>
+            <span className={cn("tabular-nums", approvedCount > 0 && "text-success")}>
+              {approvedCount} approved
             </span>
-            <span className="text-muted-foreground">&middot;</span>
-            <span className="text-success">{approvedCount} approved</span>
-            <span className="text-muted-foreground">&middot;</span>
-            <span className="text-destructive">{rejectedCount} rejected</span>
+            <span className={cn("tabular-nums", rejectedCount > 0 && "text-destructive")}>
+              {rejectedCount} rejected
+            </span>
           </div>
-          <Button
+          <button
             onClick={handlePost}
             disabled={(approvedCount === 0 && summary.trim().length === 0) || isPosting}
-            className="gap-2"
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded text-sm font-heading font-600 transition-all",
+              "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.99]",
+              "disabled:opacity-30 disabled:cursor-not-allowed"
+            )}
           >
             {isPosting ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Posting...
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Posting…
               </>
             ) : (
               <>
-                <Send className="h-4 w-4" />
-                {approvedCount > 0 
-                  ? `Post ${approvedCount} Approved Comment${approvedCount !== 1 ? "s" : ""}` 
+                <Send className="h-3.5 w-3.5" />
+                {approvedCount > 0
+                  ? `Post ${approvedCount} Comment${approvedCount !== 1 ? "s" : ""}`
                   : "Post Summary"}
               </>
             )}
-          </Button>
+          </button>
         </div>
       </div>
 
-      {/* Keyboard shortcut help */}
       <ShortcutHelp />
     </div>
   );

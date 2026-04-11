@@ -20,6 +20,7 @@ gemini = ["google-genai>=1.0"]
 ollama = ["ollama>=0.4"]
 all-providers = ["google-genai>=1.0", "ollama>=0.4"]
 web = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
+desktop = ["keyring"]
 all = ["mr-reviewer[all-providers,web]"]
 
 [project.scripts]

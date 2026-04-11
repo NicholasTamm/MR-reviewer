@@ -58,4 +58,5 @@ export interface ConfigDefaults {
   max_comments: number;
   parallel: boolean;
   parallel_threshold: number;
+  credentials_present: Record<string, boolean>;
 }

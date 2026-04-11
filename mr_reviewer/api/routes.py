@@ -387,4 +387,13 @@ async def get_config_defaults() -> ConfigDefaults:
         max_comments=config.max_comments,
         parallel=config.parallel_review,
         parallel_threshold=config.parallel_threshold,
+        credentials_present={
+            "GITLAB_TOKEN": bool(config.gitlab_token),
+            "GITHUB_TOKEN": bool(config.github_token),
+            "ANTHROPIC_API_KEY": bool(config.anthropic_api_key),
+            "GEMINI_API_KEY": bool(config.gemini_api_key),
+            "OLLAMA_HOST": bool(config.ollama_host),
+        },
     )
+
+

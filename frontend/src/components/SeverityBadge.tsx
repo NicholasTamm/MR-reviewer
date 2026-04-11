@@ -6,29 +6,28 @@ interface SeverityBadgeProps {
 
 const config = {
   error: {
-    label: "Error",
-    className: "border-severity-error/30 text-severity-error bg-severity-error/10",
+    label: "error",
+    dotClass: "bg-severity-error",
+    textClass: "text-severity-error",
   },
   warning: {
-    label: "Warning",
-    className: "border-severity-warning/30 text-severity-warning bg-severity-warning/10",
+    label: "warning",
+    dotClass: "bg-severity-warning",
+    textClass: "text-severity-warning",
   },
   info: {
-    label: "Info",
-    className: "border-severity-info/30 text-severity-info bg-severity-info/10",
+    label: "info",
+    dotClass: "bg-severity-info",
+    textClass: "text-severity-info",
   },
 };
 
 export function SeverityBadge({ severity }: SeverityBadgeProps) {
-  const { label, className } = config[severity];
+  const { label, dotClass, textClass } = config[severity];
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium border",
-        className
-      )}
-    >
+    <span className={cn("inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest", textClass)}>
+      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
       {label}
     </span>
   );

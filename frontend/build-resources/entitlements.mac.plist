@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required for PyInstaller binary to run under hardened runtime -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Required when loading bundled libraries not signed by Apple -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Allow outbound network connections to GitLab/GitHub/Anthropic APIs -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Allow binding to a local port for the embedded FastAPI server -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+</dict>
+</plist>

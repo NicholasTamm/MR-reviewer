@@ -5,8 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-heading: 'Inter', sans-serif;
-    --font-sans: 'Inter', sans-serif;
+    --font-heading: 'Syne', sans-serif;
+    --font-sans: 'DM Sans', sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
@@ -54,74 +54,73 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Dark mode only - applied directly to :root */
+/* Warm Obsidian dark theme */
 :root {
-    --background: #0a0a0b;
-    --foreground: #e4e4e7;
-    --surface: #141416;
-    --card: #141416;
-    --card-foreground: #e4e4e7;
-    --popover: #141416;
-    --popover-foreground: #e4e4e7;
-    --primary: #3b82f6;
-    --primary-foreground: #ffffff;
-    --secondary: #1e1e22;
-    --secondary-foreground: #a1a1aa;
-    --muted: #1e1e22;
-    --muted-foreground: #71717a;
-    --accent: #1e1e22;
-    --accent-foreground: #e4e4e7;
-    --destructive: #ef4444;
-    --border: #27272a;
-    --input: #27272a;
-    --ring: #3b82f6;
-    --radius: 0.5rem;
-    --severity-error: #ef4444;
-    --severity-warning: #f59e0b;
-    --severity-info: #94a3b8;
-    --success: #22c55e;
-    --diff-bg: #0d0d0e;
-    --chart-1: #3b82f6;
-    --chart-2: #6366f1;
-    --chart-3: #8b5cf6;
-    --chart-4: #a855f7;
-    --chart-5: #d946ef;
-    --sidebar: #141416;
-    --sidebar-foreground: #e4e4e7;
-    --sidebar-primary: #3b82f6;
-    --sidebar-primary-foreground: #ffffff;
-    --sidebar-accent: #1e1e22;
-    --sidebar-accent-foreground: #e4e4e7;
-    --sidebar-border: #27272a;
-    --sidebar-ring: #3b82f6;
+    --background: #0b0a08;
+    --foreground: #ede9e0;
+    --surface: #131210;
+    --card: #131210;
+    --card-foreground: #ede9e0;
+    --popover: #131210;
+    --popover-foreground: #ede9e0;
+    --primary: #e8c547;
+    --primary-foreground: #0b0a08;
+    --secondary: #1c1a16;
+    --secondary-foreground: #8a8374;
+    --muted: #1c1a16;
+    --muted-foreground: #6b6459;
+    --accent: #201e1a;
+    --accent-foreground: #ede9e0;
+    --destructive: #e84040;
+    --border: #222018;
+    --input: #1c1a16;
+    --ring: #e8c547;
+    --radius: 0.25rem;
+    --severity-error: #e84040;
+    --severity-warning: #e8823a;
+    --severity-info: #7a7468;
+    --success: #4eca7a;
+    --diff-bg: #0e0d0b;
+    --chart-1: #e8c547;
+    --chart-2: #e8823a;
+    --chart-3: #4eca7a;
+    --chart-4: #5b9cf6;
+    --chart-5: #c47be8;
+    --sidebar: #131210;
+    --sidebar-foreground: #ede9e0;
+    --sidebar-primary: #e8c547;
+    --sidebar-primary-foreground: #0b0a08;
+    --sidebar-accent: #1c1a16;
+    --sidebar-accent-foreground: #ede9e0;
+    --sidebar-border: #222018;
+    --sidebar-ring: #e8c547;
 }
 
-/* Also define .dark in case any shadcn components check for it */
 .dark {
-    --background: #0a0a0b;
-    --foreground: #e4e4e7;
-    --surface: #141416;
-    --card: #141416;
-    --card-foreground: #e4e4e7;
-    --popover: #141416;
-    --popover-foreground: #e4e4e7;
-    --primary: #3b82f6;
-    --primary-foreground: #ffffff;
-    --secondary: #1e1e22;
-    --secondary-foreground: #a1a1aa;
-    --muted: #1e1e22;
-    --muted-foreground: #71717a;
-    --accent: #1e1e22;
-    --accent-foreground: #e4e4e7;
-    --destructive: #ef4444;
-    --border: #27272a;
-    --input: #27272a;
-    --ring: #3b82f6;
-    --severity-error: #ef4444;
-    --severity-warning: #f59e0b;
-    --severity-info: #94a3b8;
-    --success: #22c55e;
-    --diff-bg: #0d0d0e;
+    --background: #0b0a08;
+    --foreground: #ede9e0;
+    --surface: #131210;
+    --card: #131210;
+    --card-foreground: #ede9e0;
+    --popover: #131210;
+    --popover-foreground: #ede9e0;
+    --primary: #e8c547;
+    --primary-foreground: #0b0a08;
+    --secondary: #1c1a16;
+    --secondary-foreground: #8a8374;
+    --muted: #1c1a16;
+    --muted-foreground: #6b6459;
+    --accent: #201e1a;
+    --accent-foreground: #ede9e0;
+    --destructive: #e84040;
+    --border: #222018;
+    --input: #1c1a16;
+    --ring: #e8c547;
+    --severity-error: #e84040;
+    --severity-warning: #e8823a;
+    --severity-info: #7a7468;
+    --success: #4eca7a;
+    --diff-bg: #0e0d0b;
 }
 
 @layer base {
@@ -130,7 +129,7 @@
     }
     body {
         @apply bg-background text-foreground;
-        font-family: 'Inter', sans-serif;
+        font-family: 'DM Sans', sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
     }
@@ -139,32 +138,62 @@
     }
 }
 
-/* Page transition: simple fade-in */
-.page-transition {
-    animation: page-fade-in 0.25s ease-out;
+/* Heading font utility */
+.font-heading {
+    font-family: 'Syne', sans-serif;
 }
 
-@keyframes page-fade-in {
+/* Page entrance animation */
+.page-transition {
+    animation: page-enter 0.22s ease-out both;
+}
+
+@keyframes page-enter {
     from {
         opacity: 0;
+        transform: translateY(6px);
     }
     to {
         opacity: 1;
+        transform: translateY(0);
     }
 }
 
-/* Step indicator pulse for active step */
-.step-pulse {
-    animation: step-pulse 2s ease-in-out infinite;
+/* Staggered comment card reveal */
+.card-reveal {
+    animation: card-enter 0.28s ease-out both;
 }
 
-@keyframes step-pulse {
+@keyframes card-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Step indicator active glow */
+.step-active-dot {
+    box-shadow: 0 0 0 3px rgba(232, 197, 71, 0.15);
+    animation: step-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes step-glow {
     0%, 100% {
-        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+        box-shadow: 0 0 0 3px rgba(232, 197, 71, 0.15);
     }
     50% {
-        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+        box-shadow: 0 0 0 5px rgba(232, 197, 71, 0);
     }
+}
+
+/* Legacy compat: step-pulse used in StepTimeline */
+.step-pulse {
+    animation: step-glow 2.5s ease-in-out infinite;
+    box-shadow: 0 0 0 3px rgba(232, 197, 71, 0.15);
 }
 
 /* Fade-in for shortcut help popover */
@@ -181,4 +210,15 @@
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Provider card hover lift */
+.provider-card {
+    transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+.provider-card:hover {
+    transform: translateY(-1px);
+}
+.provider-card:active {
+    transform: translateY(0);
 }

@@ -83,3 +83,6 @@ class ConfigDefaults(BaseModel):
     max_comments: int
     parallel: bool
     parallel_threshold: int
+    credentials_present: dict[str, bool] = {}
+
+
