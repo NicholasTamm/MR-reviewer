@@ -177,7 +177,6 @@ export function ConfigurePage() {
               <RadioGroupItem
                 value={p}
                 id={`provider-${p}`}
-                disabled={providerModels.length > 0 && !providerModels.some((item) => item.provider === p && item.available)}
               />
               <Label
                 htmlFor={`provider-${p}`}
