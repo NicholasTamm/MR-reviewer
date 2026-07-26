@@ -13,6 +13,8 @@ from mr_reviewer.api.schemas import (
     JobStatus,
     MRMetadataResponse,
     PostRequest,
+    ProviderCatalogResponse,
+    ProviderModelsResponse,
     ReviewRequest,
     ReviewResponse,
 )
@@ -31,6 +33,7 @@ from mr_reviewer.models import DiffLine, ReviewComment, ReviewResult
 from mr_reviewer.platforms import create_platform_client
 from mr_reviewer.prompts import build_system_prompt, build_user_message
 from mr_reviewer.providers import create_provider
+from mr_reviewer.providers.model_catalog import discover_models
 from mr_reviewer.url_parser import parse_mr_url
 
 logger = logging.getLogger(__name__)
@@ -387,4 +390,13 @@ async def get_config_defaults() -> ConfigDefaults:
         max_comments=config.max_comments,
         parallel=config.parallel_review,
         parallel_threshold=config.parallel_threshold,
+    )
+
+
+@router.get("/providers/models")
+def get_provider_models() -> ProviderCatalogResponse:
+    """Discover models from each configured provider without exposing credentials."""
+    providers = discover_models(Config())
+    return ProviderCatalogResponse(
+        providers=[ProviderModelsResponse(**provider.__dict__) for provider in providers]
     )

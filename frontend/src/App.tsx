@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ReviewProvider } from "@/context/ReviewContext";
 import { AppLayout } from "@/layouts/AppLayout";
@@ -7,10 +7,12 @@ import { ReviewPage } from "@/pages/ReviewPage";
 import { ConfirmationPage } from "@/pages/ConfirmationPage";
 
 function App() {
+  const Router = window.electronAPI ? HashRouter : BrowserRouter;
+
   return (
     <ReviewProvider>
       <Toaster theme="dark" position="bottom-right" richColors />
-      <BrowserRouter>
+      <Router>
         <Routes>
           <Route element={<AppLayout currentStep="configure" />}>
             <Route path="/" element={<ConfigurePage />} />
@@ -22,7 +24,7 @@ function App() {
             <Route path="/confirm/:jobId" element={<ConfirmationPage />} />
           </Route>
         </Routes>
-      </BrowserRouter>
+      </Router>
     </ReviewProvider>
   );
 }

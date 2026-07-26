@@ -91,9 +91,9 @@ def test_validate_comment_line_positive_new_line():
     assert validate_comment_line("hello.py", 2, lines) is True
 
 
-def test_validate_comment_line_positive_old_line():
+def test_validate_comment_line_rejects_old_line():
     lines = parse_diff(DIFF_DELETIONS_ONLY)
-    assert validate_comment_line("hello.py", 2, lines) is True
+    assert validate_comment_line("hello.py", 2, lines) is False
 
 
 def test_validate_comment_line_negative():

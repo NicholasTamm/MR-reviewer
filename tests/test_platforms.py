@@ -52,6 +52,38 @@ class TestCreatePlatformClient:
 
         assert isinstance(client, GitLabClient)
 
+    def test_gitlab_uses_mr_base_url(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "test-token")
+        config = Config()
+        mr_info = MRInfo(
+            platform="gitlab",
+            host="git.example.com",
+            base_url="http://git.example.com:8443",
+            namespace="group",
+            project="repo",
+            iid=1,
+        )
+
+        with patch("gitlab.Gitlab") as MockGitlab:
+            MockGitlab.return_value.auth.return_value = None
+            create_platform_client(config, mr_info)
+
+        MockGitlab.assert_called_once_with(
+            url="http://git.example.com:8443", private_token="test-token"
+        )
+
+    def test_gitlab_auth_error_includes_target(self):
+        from gitlab.exceptions import GitlabAuthenticationError
+        from mr_reviewer.exceptions import PlatformError
+        from mr_reviewer.platforms.gitlab_platform import GitLabClient
+
+        with patch("gitlab.Gitlab") as MockGitlab:
+            MockGitlab.return_value.auth.side_effect = GitlabAuthenticationError(
+                "Unauthorized", response_code=401
+            )
+            with pytest.raises(PlatformError, match=r"gitlab.com \(HTTP 401\)"):
+                GitLabClient(token="test-token")
+
     def test_creates_github_client(self, monkeypatch):
         monkeypatch.setenv("GITHUB_TOKEN", "test-token")
         config = Config()

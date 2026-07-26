@@ -10,6 +10,7 @@ from mr_reviewer.api.app import create_app
 from mr_reviewer.api.schemas import CommentDetail, MRMetadataResponse
 from mr_reviewer.api.state import JobData, job_store
 from mr_reviewer.models import ReviewComment, ReviewResult
+from mr_reviewer.providers.model_catalog import ProviderModels
 
 
 @pytest.fixture
@@ -57,12 +58,41 @@ class TestSubmitReview:
     def test_submit_review_returns_job_id(self, mock_run, client):
         resp = client.post("/api/reviews", json={
             "url": "https://github.com/owner/repo/pull/1",
+            "model": "test-model",
         })
         assert resp.status_code == 201
         data = resp.json()
         assert "job_id" in data
         assert data["status"] == "pending"
         assert data["url"] == "https://github.com/owner/repo/pull/1"
+
+    def test_submit_review_requires_model(self, client):
+        resp = client.post("/api/reviews", json={
+            "url": "https://github.com/owner/repo/pull/1",
+        })
+        assert resp.status_code == 422
+
+
+class TestProviderModels:
+    @patch("mr_reviewer.api.routes.discover_models")
+    def test_provider_models(self, mock_discover, client):
+        mock_discover.return_value = [
+            ProviderModels("anthropic", ["claude-test"], True),
+            ProviderModels("gemini", [], False, "GEMINI_API_KEY is not set"),
+        ]
+
+        resp = client.get("/api/providers/models")
+
+        assert resp.status_code == 200
+        assert resp.json()["providers"] == [
+            {"provider": "anthropic", "models": ["claude-test"], "available": True, "error": None},
+            {
+                "provider": "gemini",
+                "models": [],
+                "available": False,
+                "error": "GEMINI_API_KEY is not set",
+            },
+        ]
 
 
 class TestGetJobStatus:
@@ -264,6 +294,7 @@ class TestAutoPostMode:
     def test_auto_post_submits_with_flag(self, mock_run, client):
         resp = client.post("/api/reviews", json={
             "url": "https://github.com/owner/repo/pull/1",
+            "model": "test-model",
             "auto_post": True,
         })
         assert resp.status_code == 201

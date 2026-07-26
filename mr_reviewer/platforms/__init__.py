@@ -24,7 +24,7 @@ def create_platform_client(config: Config, mr_info: MRInfo) -> PlatformClient:
             from mr_reviewer.platforms.gitlab_platform import GitLabClient
 
             token = config.require_gitlab_token()
-            host_url = f"https://{mr_info.host}"
+            host_url = mr_info.base_url or f"https://{mr_info.host}"
             return GitLabClient(token=token, host=host_url)
 
         case "github":

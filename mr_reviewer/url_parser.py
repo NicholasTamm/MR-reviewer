@@ -36,6 +36,7 @@ def parse_gitlab_mr_url(url: str) -> MRInfo:
     return MRInfo(
         platform="gitlab",
         host=parsed.hostname,
+        base_url=f"{parsed.scheme}://{parsed.netloc}",
         namespace=match.group("namespace"),
         project=match.group("project"),
         iid=int(match.group("iid")),

@@ -18,6 +18,11 @@ def create_provider(config: Config) -> ReviewProvider:
 
     Raises ConfigurationError for unknown provider names.
     """
+    if not config.model:
+        raise ConfigurationError(
+            "No model selected. Choose an available model in the web UI or set MR_REVIEWER_MODEL."
+        )
+
     match config.provider:
         case "anthropic":
             from mr_reviewer.providers.anthropic_provider import AnthropicProvider

@@ -6,6 +6,7 @@ class MRInfo(BaseModel):
 
     platform: str
     host: str
+    base_url: str = ""
     namespace: str
     project: str
     iid: int

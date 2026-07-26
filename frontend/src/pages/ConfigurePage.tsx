@@ -8,8 +8,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { getConfigDefaults, submitReview, ApiError } from "@/lib/api";
+import { getConfigDefaults, getProviderModels, submitReview, ApiError } from "@/lib/api";
 import { useReview } from "@/context/ReviewContext";
+import type { ProviderModels } from "@/types/api";
 
 const FOCUS_OPTIONS = [
   "bugs",
@@ -37,6 +38,8 @@ export function ConfigurePage() {
   const [maxComments, setMaxComments] = useState(10);
   const [autoPost, setAutoPost] = useState(false);
   const [parallel, setParallel] = useState(false);
+  const [providerModels, setProviderModels] = useState<ProviderModels[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +57,28 @@ export function ConfigurePage() {
       .then((defaults) => {
         if (cancelled) return;
         setProvider(defaults.provider);
-        setModel(defaults.model);
         setFocusAreas(defaults.focus);
         setMaxComments(defaults.max_comments);
         setParallel(defaults.parallel);
       })
       .catch(() => {
         // Server may not be available; keep client defaults
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProviderModels()
+      .then((catalog) => {
+        if (!cancelled) setProviderModels(catalog.providers);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModelsError("Unable to load available models. Check provider configuration and try again.");
+        }
       });
     return () => {
       cancelled = true;
@@ -74,6 +92,14 @@ export function ConfigurePage() {
     setFocusAreas((prev) =>
       prev.includes(area) ? prev.filter((a) => a !== area) : [...prev, area]
     );
+  };
+
+  const activeProvider = providerModels.find((item) => item.provider === provider);
+
+  const handleProviderChange = (nextProvider: string) => {
+    setProvider(nextProvider);
+    setModel("");
+    setError(null);
   };
 
   const handleSubmit = async () => {
@@ -143,12 +169,16 @@ export function ConfigurePage() {
         <Label className="text-sm text-muted-foreground">AI Provider</Label>
         <RadioGroup
           value={provider}
-          onValueChange={setProvider}
+          onValueChange={handleProviderChange}
           className="flex gap-4"
         >
           {["anthropic", "gemini", "ollama"].map((p) => (
             <div key={p} className="flex items-center gap-2">
-              <RadioGroupItem value={p} id={`provider-${p}`} />
+              <RadioGroupItem
+                value={p}
+                id={`provider-${p}`}
+                disabled={providerModels.length > 0 && !providerModels.some((item) => item.provider === p && item.available)}
+              />
               <Label
                 htmlFor={`provider-${p}`}
                 className="text-sm capitalize cursor-pointer"
@@ -165,13 +195,27 @@ export function ConfigurePage() {
         <Label htmlFor="model" className="text-sm text-muted-foreground">
           Model
         </Label>
-        <Input
+        <select
           id="model"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="Leave blank for provider default"
-          className="font-mono text-sm bg-surface border-border"
-        />
+          disabled={!activeProvider?.available || activeProvider.models.length === 0}
+          className="flex h-9 w-full rounded-md border border-border bg-surface px-3 py-1 font-mono text-sm shadow-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="">Select a model</option>
+          {activeProvider?.models.map((availableModel) => (
+            <option key={availableModel} value={availableModel}>
+              {availableModel}
+            </option>
+          ))}
+        </select>
+        {activeProvider && !activeProvider.available && (
+          <p className="text-xs text-destructive">{activeProvider.error}</p>
+        )}
+        {activeProvider?.available && activeProvider.models.length === 0 && (
+          <p className="text-xs text-muted-foreground">No review-capable models are available for this provider.</p>
+        )}
+        {modelsError && <p className="text-xs text-destructive">{modelsError}</p>}
       </div>
 
       {/* Focus Areas */}
@@ -281,7 +325,7 @@ export function ConfigurePage() {
       {/* Submit */}
       <Button
         onClick={handleSubmit}
-        disabled={isSubmitting}
+        disabled={isSubmitting || !model}
         className="w-full h-11 text-sm font-medium"
         size="lg"
       >

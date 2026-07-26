@@ -53,9 +53,20 @@ export interface PostRequest {
 
 export interface ConfigDefaults {
   provider: string;
-  model: string;
+  model: string | null;
   focus: string[];
   max_comments: number;
   parallel: boolean;
   parallel_threshold: number;
+}
+
+export interface ProviderModels {
+  provider: string;
+  models: string[];
+  available: boolean;
+  error: string | null;
+}
+
+export interface ProviderCatalog {
+  providers: ProviderModels[];
 }

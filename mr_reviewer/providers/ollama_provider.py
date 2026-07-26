@@ -20,17 +20,15 @@ class OllamaProvider:
                 "Install it with: pip install 'mr-reviewer[ollama]'"
             )
 
+        self._client = ollama.Client(host=host)
         self._model = model
-        self._host = host
 
     def run_review(self, system_prompt: str, user_message: str) -> ReviewResult:
         """Send the diff and context to Ollama and get a structured review back."""
-        import ollama
-
         logger.info("Sending review request to Ollama (%s)...", self._model)
 
         try:
-            response = ollama.chat(
+            response = self._client.chat(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": system_prompt},

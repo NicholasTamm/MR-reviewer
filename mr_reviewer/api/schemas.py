@@ -10,7 +10,7 @@ class ReviewRequest(BaseModel):
 
     url: str
     provider: str = "anthropic"
-    model: str | None = None
+    model: str
     focus: list[str] = ["bugs", "style", "best-practices"]
     max_comments: int = 10
     parallel: bool = False
@@ -78,8 +78,23 @@ class ConfigDefaults(BaseModel):
     """Current default configuration values."""
 
     provider: str
-    model: str
+    model: str | None
     focus: list[str]
     max_comments: int
     parallel: bool
     parallel_threshold: int
+
+
+class ProviderModelsResponse(BaseModel):
+    """Models returned by one configured AI provider."""
+
+    provider: str
+    models: list[str]
+    available: bool
+    error: str | None = None
+
+
+class ProviderCatalogResponse(BaseModel):
+    """Model availability for every supported AI provider."""
+
+    providers: list[ProviderModelsResponse]

@@ -7,6 +7,7 @@ import type {
   CommentDetail,
   PostRequest,
   ConfigDefaults,
+  ProviderCatalog,
 } from "@/types/api";
 
 class ApiError extends Error {
@@ -19,14 +20,36 @@ class ApiError extends Error {
   }
 }
 
+let baseUrl: string | null = null;
+let authToken: string | null = null;
+
+async function getBaseUrl(): Promise<string> {
+  if (baseUrl !== null) return baseUrl;
+  if (window.electronAPI) {
+    const port = await window.electronAPI.getBackendPort();
+    baseUrl = `http://127.0.0.1:${port}`;
+  } else {
+    baseUrl = "";
+  }
+  return baseUrl;
+}
+
+async function getAuthToken(): Promise<string | null> {
+  if (authToken !== null) return authToken;
+  authToken = window.electronAPI ? await window.electronAPI.getAuthToken() : null;
+  return authToken;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(path, {
+  const [base, token] = await Promise.all([getBaseUrl(), getAuthToken()]);
+  const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -105,6 +128,10 @@ export function postReview(
 
 export function getConfigDefaults(): Promise<ConfigDefaults> {
   return request<ConfigDefaults>("/api/config/defaults");
+}
+
+export function getProviderModels(): Promise<ProviderCatalog> {
+  return request<ProviderCatalog>("/api/providers/models");
 }
 
 export { ApiError };

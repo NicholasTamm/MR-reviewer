@@ -1,6 +1,6 @@
 import pytest
 
-from mr_reviewer.config import DEFAULT_FOCUS, DEFAULT_MODEL, Config
+from mr_reviewer.config import DEFAULT_FOCUS, Config
 from mr_reviewer.exceptions import ConfigurationError
 
 
@@ -33,7 +33,7 @@ def test_config_uses_defaults(monkeypatch):
     config = Config()
     assert config.gitlab_token == ""
     assert config.anthropic_api_key == ""
-    assert config.model == DEFAULT_MODEL
+    assert config.model is None
     assert config.default_focus == DEFAULT_FOCUS
     assert config.provider == "anthropic"
     assert config.gemini_api_key == ""
@@ -60,6 +60,12 @@ def test_require_gitlab_token_returns_token(monkeypatch):
     assert config.require_gitlab_token() == "glpat-abc123"
 
 
+def test_config_strips_token_whitespace(monkeypatch):
+    monkeypatch.setenv("GITLAB_TOKEN", "  glpat-abc123\n")
+    config = Config()
+    assert config.require_gitlab_token() == "glpat-abc123"
+
+
 def test_require_anthropic_key_returns_key(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-abc123")
     config = Config()
@@ -67,7 +73,6 @@ def test_require_anthropic_key_returns_key(monkeypatch):
 
 
 def test_default_constants():
-    assert DEFAULT_MODEL == "claude-sonnet-4-20250514"
     assert DEFAULT_FOCUS == ["bugs", "style", "best-practices"]
 
 

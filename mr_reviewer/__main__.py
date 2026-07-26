@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 
-from mr_reviewer.config import DEFAULT_FOCUS, DEFAULT_MODEL, Config
+from mr_reviewer.config import DEFAULT_FOCUS, Config
 from mr_reviewer.core import review_mr
 from mr_reviewer.exceptions import ConfigurationError, MRReviewerError
 from mr_reviewer.platforms import create_platform_client
@@ -50,7 +50,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help=f"AI model to use (default: {DEFAULT_MODEL})",
+        help="AI model to use (or set MR_REVIEWER_MODEL)",
     )
     parser.add_argument(
         "--provider",

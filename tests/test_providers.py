@@ -95,6 +95,7 @@ class TestCreateProvider:
         with patch("anthropic.Anthropic"):
             config = Config()
             config.provider = "anthropic"
+            config.model = "test-model"
             provider = create_provider(config)
 
         assert isinstance(provider, AnthropicProvider)
@@ -107,6 +108,7 @@ class TestCreateProvider:
 
             config = Config()
             config.provider = "gemini"
+            config.model = "test-model"
             provider = create_provider(config)
 
             assert isinstance(provider, GeminiProvider)
@@ -117,6 +119,7 @@ class TestCreateProvider:
 
             config = Config()
             config.provider = "ollama"
+            config.model = "test-model"
             provider = create_provider(config)
 
             assert isinstance(provider, OllamaProvider)
@@ -124,6 +127,12 @@ class TestCreateProvider:
     def test_unknown_provider_raises_configuration_error(self):
         config = Config()
         config.provider = "unknown-provider"
+        config.model = "test-model"
 
         with pytest.raises(ConfigurationError, match="Unknown provider"):
+            create_provider(config)
+
+    def test_missing_model_raises_configuration_error(self):
+        config = Config()
+        with pytest.raises(ConfigurationError, match="No model selected"):
             create_provider(config)

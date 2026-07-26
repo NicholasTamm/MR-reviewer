@@ -34,6 +34,14 @@ def test_valid_self_hosted_gitlab():
     assert result.iid == 100
 
 
+def test_self_hosted_gitlab_preserves_scheme_and_port():
+    result = parse_gitlab_mr_url(
+        "http://git.example.com:8443/team/repo/-/merge_requests/100"
+    )
+    assert result.host == "git.example.com"
+    assert result.base_url == "http://git.example.com:8443"
+
+
 def test_invalid_url_no_hostname():
     with pytest.raises(ValueError, match="no hostname"):
         parse_gitlab_mr_url("not-a-url")

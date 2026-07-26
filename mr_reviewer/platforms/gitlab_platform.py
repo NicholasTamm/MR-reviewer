@@ -29,10 +29,13 @@ class GitLabClient:
         self.gl = gitlab.Gitlab(url=host, private_token=token)
         try:
             self.gl.auth()
-        except gitlab.exceptions.GitlabAuthenticationError:
+        except gitlab.exceptions.GitlabAuthenticationError as e:
+            status = getattr(e, "response_code", "unknown")
             raise PlatformError(
-                "GitLab authentication failed — check that GITLAB_TOKEN is valid and has 'api' scope"
-            )
+                f"GitLab authentication failed at {host} (HTTP {status}). "
+                "Check that GITLAB_TOKEN is valid, has 'api' scope, and belongs to this GitLab instance. "
+                "If the token was just changed in .env, recreate the backend container."
+            ) from e
         self._diff_refs: GitLabDiffRefs | None = None
         self._diff_files: list[DiffFile] = []
         self._project_cache: dict[str, Any] = {}

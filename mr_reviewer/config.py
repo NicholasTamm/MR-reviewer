@@ -2,7 +2,6 @@ import os
 
 from mr_reviewer.exceptions import ConfigurationError
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_FOCUS = ["bugs", "style", "best-practices"]
 
 
@@ -10,16 +9,14 @@ class Config:
     """Configuration loaded from environment variables."""
 
     def __init__(self) -> None:
-        self.gitlab_token: str = os.environ.get("GITLAB_TOKEN", "")
-        self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
-        self.model: str = os.environ.get(
-            "MR_REVIEWER_MODEL", DEFAULT_MODEL
-        )
+        self.gitlab_token: str = os.environ.get("GITLAB_TOKEN", "").strip()
+        self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        self.model: str | None = os.environ.get("MR_REVIEWER_MODEL", "").strip() or None
         self.default_focus: list[str] = os.environ.get(
             "MR_REVIEWER_FOCUS", ",".join(DEFAULT_FOCUS)
         ).split(",")
         self.provider: str = os.environ.get("MR_REVIEWER_PROVIDER", "anthropic")
-        self.gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
+        self.gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "").strip()
         self.ollama_host: str = os.environ.get(
             "OLLAMA_HOST", "http://localhost:11434"
         )
