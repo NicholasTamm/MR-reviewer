@@ -4,12 +4,14 @@ import { randomBytes } from "crypto";
 import * as http from "http";
 import * as net from "net";
 import * as path from "path";
+import { fileURLToPath } from "url";
 
 let backendProcess: ChildProcess | null = null;
 let backendPort = 0;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 const authToken = randomBytes(32).toString("hex");
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -60,7 +62,7 @@ async function ensureBackend(): Promise<void> {
     "python",
     ["-m", "mr_reviewer", "--serve", "--host", "127.0.0.1", "--port", String(backendPort)],
     {
-      cwd: path.resolve(__dirname, "../.."),
+      cwd: path.resolve(moduleDir, "../.."),
       env: { ...process.env, MR_REVIEWER_TOKEN: authToken },
       stdio: "pipe",
     },
@@ -86,7 +88,7 @@ async function createWindow(): Promise<void> {
     minWidth: 900,
     minHeight: 600,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(moduleDir, "preload.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -107,7 +109,7 @@ async function createWindow(): Promise<void> {
   if (devServerUrl) {
     await mainWindow.loadURL(devServerUrl);
   } else {
-    await mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    await mainWindow.loadFile(path.join(moduleDir, "../dist/index.html"));
   }
 }
 
