@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { ChildProcess, spawn } from "child_process";
 import { randomBytes } from "crypto";
+import { config as loadEnv } from "dotenv";
 import * as http from "http";
 import * as net from "net";
 import * as path from "path";
@@ -12,6 +13,10 @@ let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 const authToken = randomBytes(32).toString("hex");
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+if (!app.isPackaged) {
+  loadEnv({ path: path.resolve(moduleDir, "../../.env") });
+}
 
 function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
