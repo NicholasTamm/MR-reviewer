@@ -8,6 +8,9 @@ import type {
   PostRequest,
   ConfigDefaults,
   ProviderCatalog,
+  GitLabMergeRequestCatalog,
+  GitLabProjectsResponse,
+  GitLabProjectMergeRequests,
 } from "@/types/api";
 
 class ApiError extends Error {
@@ -21,7 +24,6 @@ class ApiError extends Error {
 }
 
 let baseUrl: string | null = null;
-let authToken: string | null = null;
 
 async function getBaseUrl(): Promise<string> {
   if (baseUrl !== null) return baseUrl;
@@ -34,22 +36,22 @@ async function getBaseUrl(): Promise<string> {
   return baseUrl;
 }
 
-async function getAuthToken(): Promise<string | null> {
-  if (authToken !== null) return authToken;
-  authToken = window.electronAPI ? await window.electronAPI.getAuthToken() : null;
-  return authToken;
-}
 
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const [base, token] = await Promise.all([getBaseUrl(), getAuthToken()]);
+  if (window.electronAPI) {
+    const result = await window.electronAPI.requestBackend(path, options.method, typeof options.body === "string" ? options.body : "");
+    const data = result.body ? JSON.parse(result.body) : undefined;
+    if (result.status >= 400) throw new ApiError(result.status, typeof data?.detail === "string" ? data.detail : `Request failed with status ${result.status}`);
+    return data as T;
+  }
+  const base = await getBaseUrl();
   const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -133,5 +135,12 @@ export function getConfigDefaults(): Promise<ConfigDefaults> {
 export function getProviderModels(): Promise<ProviderCatalog> {
   return request<ProviderCatalog>("/api/providers/models");
 }
+
+export function getGitLabMergeRequests(search = ""): Promise<GitLabMergeRequestCatalog> {
+  return request<GitLabMergeRequestCatalog>(`/api/gitlab/merge-requests?search=${encodeURIComponent(search)}`);
+}
+
+export function getGitLabProjects(search = ""): Promise<GitLabProjectsResponse> { return request(`/api/gitlab/projects?search=${encodeURIComponent(search)}`); }
+export function getGitLabProjectMergeRequests(projectId: string): Promise<GitLabProjectMergeRequests> { return request(`/api/gitlab/projects/${encodeURIComponent(projectId)}/merge-requests`); }
 
 export { ApiError };

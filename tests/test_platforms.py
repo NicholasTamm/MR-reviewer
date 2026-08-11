@@ -58,7 +58,7 @@ class TestCreatePlatformClient:
         mr_info = MRInfo(
             platform="gitlab",
             host="git.example.com",
-            base_url="http://git.example.com:8443",
+            base_url="https://git.example.com:8443",
             namespace="group",
             project="repo",
             iid=1,
@@ -69,7 +69,7 @@ class TestCreatePlatformClient:
             create_platform_client(config, mr_info)
 
         MockGitlab.assert_called_once_with(
-            url="http://git.example.com:8443", private_token="test-token"
+            url="https://git.example.com:8443", private_token="test-token"
         )
 
     def test_gitlab_auth_error_includes_target(self):
@@ -83,6 +83,42 @@ class TestCreatePlatformClient:
             )
             with pytest.raises(PlatformError, match=r"gitlab.com \(HTTP 401\)"):
                 GitLabClient(token="test-token")
+
+    def test_rejects_insecure_gitlab_url_by_default(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "test-token")
+        config = Config()
+        mr_info = MRInfo(
+            platform="gitlab",
+            host="git.example.com",
+            base_url="http://git.example.com:8443",
+            namespace="group",
+            project="repo",
+            iid=1,
+        )
+
+        with pytest.raises(ConfigurationError, match="insecure HTTP"):
+            create_platform_client(config, mr_info)
+
+    def test_allows_insecure_gitlab_url_when_explicitly_enabled(self, monkeypatch):
+        monkeypatch.setenv("GITLAB_TOKEN", "test-token")
+        monkeypatch.setenv("MR_REVIEWER_ALLOW_INSECURE_GITLAB", "true")
+        config = Config()
+        mr_info = MRInfo(
+            platform="gitlab",
+            host="git.example.com",
+            base_url="http://git.example.com:8443",
+            namespace="group",
+            project="repo",
+            iid=1,
+        )
+
+        with patch("gitlab.Gitlab") as MockGitlab:
+            MockGitlab.return_value.auth.return_value = None
+            create_platform_client(config, mr_info)
+
+        MockGitlab.assert_called_once_with(
+            url="http://git.example.com:8443", private_token="test-token"
+        )
 
     def test_creates_github_client(self, monkeypatch):
         monkeypatch.setenv("GITHUB_TOKEN", "test-token")

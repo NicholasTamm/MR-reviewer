@@ -1,4 +1,4 @@
-import { Outlet } from "react-router-dom";
+import { Link, Outlet } from "react-router-dom";
 import { StepIndicator } from "@/components/StepIndicator";
 import type { Step } from "@/types";
 
@@ -12,9 +12,11 @@ export function AppLayout({ currentStep }: AppLayoutProps) {
       {/* Top bar */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-          <span className="font-mono text-sm font-bold tracking-tight text-foreground">
+          <Link to="/" className="font-mono text-sm font-bold tracking-tight text-foreground hover:text-primary">
             MR Reviewer
-          </span>
+          </Link>
+          <Link to="/gitlab/merge-requests" className="text-sm text-muted-foreground hover:text-foreground">Browse GitLab</Link>
+          <Link to="/settings" className="text-sm text-muted-foreground hover:text-foreground">Settings</Link>
           <StepIndicator currentStep={currentStep} />
         </div>
       </header>

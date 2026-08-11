@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Check, X, FileCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,13 +32,8 @@ export function CommentCard({
   // Use external editing state if provided, otherwise internal
   const isEditing = isEditingExternal !== undefined ? isEditingExternal : isEditingInternal;
 
-  useEffect(() => {
-    if (!isEditing) {
-      setEditValue(comment.body);
-    }
-  }, [comment.body, isEditing]);
-
   const handleStartEdit = () => {
+    setEditValue(comment.body);
     if (onStartEdit) {
       onStartEdit();
     } else {

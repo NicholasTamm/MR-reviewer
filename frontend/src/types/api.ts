@@ -3,7 +3,7 @@
 export interface ReviewRequest {
   url: string;
   provider: string;
-  model: string | null;
+  model: string;
   focus: string[];
   max_comments: number;
   parallel: boolean;
@@ -70,3 +70,29 @@ export interface ProviderModels {
 export interface ProviderCatalog {
   providers: ProviderModels[];
 }
+
+export interface GitLabMergeRequest {
+  project_id: number;
+  project_path: string;
+  iid: number;
+  title: string;
+  author: string;
+  source_branch: string;
+  target_branch: string;
+  updated_at: string;
+  web_url: string;
+  draft: boolean;
+}
+
+export interface GitLabProjectMergeRequests {
+  project_id: number;
+  project_path: string;
+  merge_requests: GitLabMergeRequest[];
+}
+
+export interface GitLabMergeRequestCatalog {
+  projects: GitLabProjectMergeRequests[];
+}
+
+export interface GitLabProjectSummary { project_id: number; project_path: string; web_url: string; }
+export interface GitLabProjectsResponse { projects: GitLabProjectSummary[]; }

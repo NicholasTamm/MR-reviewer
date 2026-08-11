@@ -74,3 +74,28 @@ class GitLabDiffRefs(BaseModel):
     base_sha: str
     start_sha: str
     head_sha: str
+
+
+class GitLabMergeRequestSummary(BaseModel):
+    project_id: int
+    project_path: str
+    iid: int
+    title: str
+    author: str = ""
+    source_branch: str = ""
+    target_branch: str = ""
+    updated_at: str = ""
+    web_url: str = ""
+    draft: bool = False
+
+
+class GitLabProjectMergeRequests(BaseModel):
+    project_id: int
+    project_path: str
+    merge_requests: list[GitLabMergeRequestSummary]
+
+
+class GitLabProjectSummary(BaseModel):
+    project_id: int
+    project_path: str
+    web_url: str = ""

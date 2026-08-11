@@ -10,6 +10,7 @@ class Config:
 
     def __init__(self) -> None:
         self.gitlab_token: str = os.environ.get("GITLAB_TOKEN", "").strip()
+        self.gitlab_url: str = os.environ.get("MR_REVIEWER_GITLAB_URL", "https://gitlab.com").rstrip("/")
         self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         self.model: str | None = os.environ.get("MR_REVIEWER_MODEL", "").strip() or None
         self.default_focus: list[str] = os.environ.get(
@@ -23,6 +24,9 @@ class Config:
         self.github_token: str = os.environ.get("GITHUB_TOKEN", "")
         self.parallel_review: bool = os.environ.get(
             "MR_REVIEWER_PARALLEL", ""
+        ).lower() in ("1", "true", "yes")
+        self.allow_insecure_gitlab: bool = os.environ.get(
+            "MR_REVIEWER_ALLOW_INSECURE_GITLAB", ""
         ).lower() in ("1", "true", "yes")
         self.parallel_threshold: int = int(
             os.environ.get("MR_REVIEWER_PARALLEL_THRESHOLD", "10")

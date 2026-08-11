@@ -1,0 +1,11 @@
+appId: com.mrreviewer.app
+productName: MR Reviewer
+directories:
+  output: release
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+extraResources:
+  - from: resources/backend
+    to: backend

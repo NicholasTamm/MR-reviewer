@@ -10,6 +10,9 @@ from mr_reviewer.api.schemas import (
     CommentDetail,
     CommentEditRequest,
     ConfigDefaults,
+    GitLabMergeRequestCatalogResponse,
+    GitLabProjectsResponse,
+    GitLabProjectMergeRequests,
     JobStatus,
     MRMetadataResponse,
     PostRequest,
@@ -31,6 +34,7 @@ from mr_reviewer.diff_parser import (
 from mr_reviewer.exceptions import ConfigurationError, MRReviewerError, PlatformError, ProviderError
 from mr_reviewer.models import DiffLine, ReviewComment, ReviewResult
 from mr_reviewer.platforms import create_platform_client
+from mr_reviewer.platforms.gitlab_platform import GitLabClient
 from mr_reviewer.prompts import build_system_prompt, build_user_message
 from mr_reviewer.providers import create_provider
 from mr_reviewer.providers.model_catalog import discover_models
@@ -400,3 +404,45 @@ def get_provider_models() -> ProviderCatalogResponse:
     return ProviderCatalogResponse(
         providers=[ProviderModelsResponse(**provider.__dict__) for provider in providers]
     )
+
+
+@router.get("/gitlab/merge-requests")
+async def get_gitlab_merge_requests(search: str = "") -> GitLabMergeRequestCatalogResponse:
+    """Return open merge requests visible to the configured GitLab token."""
+    config = Config()
+    if not config.gitlab_url.startswith("https://") and not config.allow_insecure_gitlab:
+        raise HTTPException(status_code=400, detail="GitLab browsing requires an HTTPS MR_REVIEWER_GITLAB_URL")
+    try:
+        client = await asyncio.to_thread(GitLabClient, config.require_gitlab_token(), config.gitlab_url)
+        projects = await asyncio.to_thread(client.list_visible_merge_requests, search)
+    except MRReviewerError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return GitLabMergeRequestCatalogResponse(projects=projects)
+
+
+def _gitlab_browse_client() -> GitLabClient:
+    config = Config()
+    if not config.gitlab_url.startswith("https://") and not config.allow_insecure_gitlab:
+        raise HTTPException(status_code=400, detail="GitLab browsing requires an HTTPS MR_REVIEWER_GITLAB_URL")
+    return GitLabClient(config.require_gitlab_token(), config.gitlab_url)
+
+
+@router.get("/gitlab/projects")
+async def get_gitlab_projects(search: str = "") -> GitLabProjectsResponse:
+    try:
+        client = await asyncio.to_thread(_gitlab_browse_client)
+        projects = await asyncio.to_thread(client.list_visible_projects, search)
+    except MRReviewerError as e:
+        logger.exception("GitLab project browse failed")
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return GitLabProjectsResponse(projects=projects)
+
+
+@router.get("/gitlab/projects/{project_id}/merge-requests")
+async def get_project_merge_requests(project_id: int) -> GitLabProjectMergeRequests:
+    try:
+        client = await asyncio.to_thread(_gitlab_browse_client)
+        return await asyncio.to_thread(client.list_project_merge_requests, project_id)
+    except MRReviewerError as e:
+        logger.exception("GitLab project merge-request browse failed for %s", project_id)
+        raise HTTPException(status_code=502, detail=str(e)) from e

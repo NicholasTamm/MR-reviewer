@@ -23,6 +23,8 @@ def parse_gitlab_mr_url(url: str) -> MRInfo:
 
     if not parsed.hostname:
         raise ValueError(f"Invalid URL (no hostname): {url}")
+    if parsed.username or parsed.password:
+        raise ValueError("GitLab MR URLs must not include credentials")
 
     if "/-/merge_requests/" not in parsed.path:
         raise ValueError(

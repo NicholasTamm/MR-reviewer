@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Play, AlertTriangle, Zap, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ const MR_URL_PATTERN =
 
 export function ConfigurePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { reset } = useReview();
 
   const [url, setUrl] = useState("");
@@ -40,22 +41,30 @@ export function ConfigurePage() {
   const [parallel, setParallel] = useState(false);
   const [providerModels, setProviderModels] = useState<ProviderModels[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelRequest, setModelRequest] = useState(0);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [urlTouched, setUrlTouched] = useState(false);
+  const userChangedProviderRef = useRef(false);
 
   // Reset review context when returning to configure page
   useEffect(() => {
     reset();
   }, [reset]);
 
+  useEffect(() => {
+    const mrUrl = searchParams.get("url");
+    if (mrUrl) setUrl(mrUrl);
+  }, [searchParams]);
+
   // Load server defaults on mount
   useEffect(() => {
     let cancelled = false;
     getConfigDefaults()
       .then((defaults) => {
-        if (cancelled) return;
+        if (cancelled || userChangedProviderRef.current) return;
         setProvider(defaults.provider);
         setFocusAreas(defaults.focus);
         setMaxComments(defaults.max_comments);
@@ -71,6 +80,8 @@ export function ConfigurePage() {
 
   useEffect(() => {
     let cancelled = false;
+    setModelsLoading(true);
+    setModelsError(null);
     getProviderModels()
       .then((catalog) => {
         if (!cancelled) setProviderModels(catalog.providers);
@@ -79,11 +90,14 @@ export function ConfigurePage() {
         if (!cancelled) {
           setModelsError("Unable to load available models. Check provider configuration and try again.");
         }
+      })
+      .finally(() => {
+        if (!cancelled) setModelsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [modelRequest]);
 
   const isUrlValid = MR_URL_PATTERN.test(url);
   const showUrlError = urlTouched && url.length > 0 && !isUrlValid;
@@ -97,9 +111,19 @@ export function ConfigurePage() {
   const activeProvider = providerModels.find((item) => item.provider === provider);
 
   const handleProviderChange = (nextProvider: string) => {
+    userChangedProviderRef.current = true;
     setProvider(nextProvider);
     setModel("");
     setError(null);
+  };
+
+  const handleModelChange = (nextModel: string) => {
+    userChangedProviderRef.current = true;
+    setModel(nextModel);
+  };
+
+  const retryModelDiscovery = () => {
+    setModelRequest((request) => request + 1);
   };
 
   const handleSubmit = async () => {
@@ -115,7 +139,7 @@ export function ConfigurePage() {
       const result = await submitReview({
         url,
         provider,
-        model: model || null,
+        model,
         focus: focusAreas,
         max_comments: maxComments,
         parallel,
@@ -197,8 +221,8 @@ export function ConfigurePage() {
         <select
           id="model"
           value={model}
-          onChange={(e) => setModel(e.target.value)}
-          disabled={!activeProvider?.available || activeProvider.models.length === 0}
+          onChange={(e) => handleModelChange(e.target.value)}
+          disabled={modelsLoading || !activeProvider?.available || activeProvider.models.length === 0}
           className="flex h-9 w-full rounded-md border border-border bg-surface px-3 py-1 font-mono text-sm shadow-sm outline-none disabled:cursor-not-allowed disabled:opacity-50"
         >
           <option value="">Select a model</option>
@@ -214,7 +238,15 @@ export function ConfigurePage() {
         {activeProvider?.available && activeProvider.models.length === 0 && (
           <p className="text-xs text-muted-foreground">No review-capable models are available for this provider.</p>
         )}
-        {modelsError && <p className="text-xs text-destructive">{modelsError}</p>}
+        {modelsLoading && <p className="text-xs text-muted-foreground">Loading available models...</p>}
+        {modelsError && (
+          <div className="flex items-center gap-2 text-xs text-destructive">
+            <p>{modelsError}</p>
+            <Button variant="outline" size="sm" onClick={retryModelDiscovery}>
+              Retry
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Focus Areas */}
@@ -289,7 +321,7 @@ export function ConfigurePage() {
         {/* Review Mode */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Label className="text-sm">Review Mode</Label>
+            <Label htmlFor="auto-post" className="text-sm">Review Mode</Label>
             {autoPost && (
               <span className="inline-flex items-center gap-1 rounded bg-severity-warning/10 px-2 py-0.5 text-xs text-severity-warning border border-severity-warning/20">
                 <AlertTriangle className="h-3 w-3" />
@@ -299,7 +331,7 @@ export function ConfigurePage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Manual</span>
-            <Switch checked={autoPost} onCheckedChange={setAutoPost} />
+            <Switch id="auto-post" checked={autoPost} onCheckedChange={setAutoPost} />
             <span className="text-xs text-muted-foreground">Auto-post</span>
           </div>
         </div>
@@ -308,9 +340,9 @@ export function ConfigurePage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-muted-foreground" />
-            <Label className="text-sm">Parallel Mode</Label>
+            <Label htmlFor="parallel-review" className="text-sm">Parallel Mode</Label>
           </div>
-          <Switch checked={parallel} onCheckedChange={setParallel} />
+          <Switch id="parallel-review" checked={parallel} onCheckedChange={setParallel} />
         </div>
       </div>
 

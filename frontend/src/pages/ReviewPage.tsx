@@ -152,7 +152,6 @@ export function ReviewPage() {
         setProgressMessage("Connection issue, retrying...");
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopPolling, navigate, setReview, setPostedCount],
   );
 

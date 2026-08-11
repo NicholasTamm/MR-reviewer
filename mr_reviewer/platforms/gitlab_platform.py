@@ -11,6 +11,9 @@ from mr_reviewer.models import (
     DiffLine,
     FetchResult,
     GitLabDiffRefs,
+    GitLabMergeRequestSummary,
+    GitLabProjectMergeRequests,
+    GitLabProjectSummary,
     MRInfo,
     MRMetadata,
     ReviewResult,
@@ -40,6 +43,77 @@ class GitLabClient:
         self._diff_files: list[DiffFile] = []
         self._project_cache: dict[str, Any] = {}
         self._mr_cache: dict[str, Any] = {}
+
+    def list_visible_merge_requests(self, search: str = "") -> list[GitLabProjectMergeRequests]:
+        """List accessible open merge requests, grouped by project path."""
+        try:
+            merge_requests = self.gl.mergerequests.list(
+                scope="all", state="opened", order_by="updated_at", sort="desc",
+                per_page=100, get_all=True,
+            )
+        except gitlab.exceptions.GitlabListError as e:
+            raise PlatformError("GitLab API error listing merge requests") from e
+
+        groups: dict[int, GitLabProjectMergeRequests] = {}
+        query = search.casefold().strip()
+        for mr in merge_requests:
+            data = mr.asdict() if hasattr(mr, "asdict") else mr.__dict__
+            reference = data.get("references", {}).get("full", "")
+            project_path = reference.rsplit("!", 1)[0] or str(data["project_id"])
+            title = data.get("title", "")
+            if query and query not in project_path.casefold() and query not in title.casefold():
+                continue
+            project_id = int(data["project_id"])
+            group = groups.setdefault(
+                project_id,
+                GitLabProjectMergeRequests(project_id=project_id, project_path=project_path, merge_requests=[]),
+            )
+            group.merge_requests.append(
+                GitLabMergeRequestSummary(
+                    project_id=project_id, project_path=project_path, iid=data["iid"], title=title,
+                    author=data.get("author", {}).get("name", ""),
+                    source_branch=data.get("source_branch", ""), target_branch=data.get("target_branch", ""),
+                    updated_at=data.get("updated_at", ""), web_url=data.get("web_url", ""),
+                    draft=data.get("draft", False),
+                )
+            )
+        return sorted(groups.values(), key=lambda group: group.project_path.casefold())
+
+    def list_visible_projects(self, search: str = "") -> list[GitLabProjectSummary]:
+        """List projects accessible to the token without traversing their MRs."""
+        try:
+            projects = self.gl.projects.list(
+                membership=True, archived=False, simple=True, order_by="path",
+                sort="asc", per_page=100, get_all=True,
+            )
+        except gitlab.exceptions.GitlabListError as e:
+            raise PlatformError("GitLab API error listing projects") from e
+        query = search.casefold().strip()
+        return [
+            GitLabProjectSummary(project_id=project.id, project_path=project.path_with_namespace, web_url=getattr(project, "web_url", ""))
+            for project in projects
+            if not query or query in project.path_with_namespace.casefold()
+        ]
+
+    def list_project_merge_requests(self, project_id: int) -> GitLabProjectMergeRequests:
+        try:
+            project = self.gl.projects.get(project_id)
+            merge_requests = project.mergerequests.list(
+                state="opened", order_by="updated_at", sort="desc", per_page=100, get_all=True,
+            )
+        except gitlab.exceptions.GitlabGetError as e:
+            raise PlatformError("GitLab project not found or inaccessible") from e
+        except gitlab.exceptions.GitlabListError as e:
+            raise PlatformError("GitLab API error listing project merge requests") from e
+        return GitLabProjectMergeRequests(
+            project_id=project_id, project_path=project.path_with_namespace,
+            merge_requests=[GitLabMergeRequestSummary(
+                project_id=project_id, project_path=project.path_with_namespace, iid=mr.iid,
+                title=mr.title, author=getattr(mr.author, "name", "") if hasattr(mr, "author") else "",
+                source_branch=mr.source_branch, target_branch=mr.target_branch,
+                updated_at=mr.updated_at, web_url=mr.web_url, draft=getattr(mr, "draft", False),
+            ) for mr in merge_requests],
+        )
 
     def _get_project_and_mr(self, mr_info: MRInfo) -> tuple[Any, Any]:
         """Get project and MR objects, caching after first lookup."""

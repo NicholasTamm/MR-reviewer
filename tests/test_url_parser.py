@@ -42,6 +42,13 @@ def test_self_hosted_gitlab_preserves_scheme_and_port():
     assert result.base_url == "http://git.example.com:8443"
 
 
+def test_gitlab_url_rejects_embedded_credentials():
+    with pytest.raises(ValueError, match="must not include credentials"):
+        parse_gitlab_mr_url(
+            "https://token@git.example.com/team/repo/-/merge_requests/100"
+        )
+
+
 def test_invalid_url_no_hostname():
     with pytest.raises(ValueError, match="no hostname"):
         parse_gitlab_mr_url("not-a-url")

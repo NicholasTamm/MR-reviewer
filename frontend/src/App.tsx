@@ -5,6 +5,9 @@ import { AppLayout } from "@/layouts/AppLayout";
 import { ConfigurePage } from "@/pages/ConfigurePage";
 import { ReviewPage } from "@/pages/ReviewPage";
 import { ConfirmationPage } from "@/pages/ConfirmationPage";
+import { GitLabProjectsPage } from "@/pages/GitLabProjectsPage";
+import { GitLabProjectPage } from "@/pages/GitLabProjectPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 function App() {
   const Router = window.electronAPI ? HashRouter : BrowserRouter;
@@ -16,6 +19,9 @@ function App() {
         <Routes>
           <Route element={<AppLayout currentStep="configure" />}>
             <Route path="/" element={<ConfigurePage />} />
+            <Route path="/gitlab/merge-requests" element={<GitLabProjectsPage />} />
+            <Route path="/gitlab/projects/:projectId" element={<GitLabProjectPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route element={<AppLayout currentStep="review" />}>
             <Route path="/review/:jobId" element={<ReviewPage />} />

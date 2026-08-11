@@ -25,6 +25,11 @@ def create_platform_client(config: Config, mr_info: MRInfo) -> PlatformClient:
 
             token = config.require_gitlab_token()
             host_url = mr_info.base_url or f"https://{mr_info.host}"
+            if host_url.startswith("http://") and not config.allow_insecure_gitlab:
+                raise ConfigurationError(
+                    "Refusing to send GITLAB_TOKEN to an insecure HTTP GitLab URL. "
+                    "Use HTTPS, or set MR_REVIEWER_ALLOW_INSECURE_GITLAB=true only for a trusted local instance."
+                )
             return GitLabClient(token=token, host=host_url)
 
         case "github":

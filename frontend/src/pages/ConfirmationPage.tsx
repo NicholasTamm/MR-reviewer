@@ -11,15 +11,13 @@ export function ConfirmationPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const { metadata, comments, postedCount, setReview, setPostedCount } = useReview();
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => metadata === null && Boolean(jobId));
 
   // If we don't have metadata (e.g. direct navigation), re-fetch from API
   useEffect(() => {
     if (metadata !== null || !jobId) return;
 
     let cancelled = false;
-    setLoading(true);
-
     getReviewResults(jobId)
       .then((results) => {
         if (cancelled) return;

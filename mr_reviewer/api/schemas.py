@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from mr_reviewer.models import GitLabProjectMergeRequests, GitLabProjectSummary
+
 
 class ReviewRequest(BaseModel):
     """Request to submit a new review."""
@@ -98,3 +100,11 @@ class ProviderCatalogResponse(BaseModel):
     """Model availability for every supported AI provider."""
 
     providers: list[ProviderModelsResponse]
+
+
+class GitLabMergeRequestCatalogResponse(BaseModel):
+    projects: list[GitLabProjectMergeRequests]
+
+
+class GitLabProjectsResponse(BaseModel):
+    projects: list[GitLabProjectSummary]

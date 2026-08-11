@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { JobStatus } from "@/types/api";
 
@@ -11,6 +11,18 @@ interface StepTimelineProps {
 interface Stage {
   label: string;
   statuses: JobStatus["status"][];
+}
+
+function ActiveStageElapsed() {
+  const startedAt = useState(() => Date.now())[0];
+  const [now, setNow] = useState(startedAt);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return <span className="text-xs text-muted-foreground tabular-nums">{formatElapsed(now - startedAt)}</span>;
 }
 
 const STAGES: Stage[] = [
@@ -40,46 +52,14 @@ export function StepTimeline({ status, progress, error }: StepTimelineProps) {
   const isFailed = status === "failed";
   const activeStageIndex = isFailed ? -1 : getActiveStageIndex(status);
 
-  // Track the last non-failed stage for failed visual state
-  const lastActiveIndexRef = useRef<number>(0);
-  if (!isFailed && activeStageIndex >= 0) {
-    lastActiveIndexRef.current = activeStageIndex;
-  }
-  const failedStageIndex = isFailed ? lastActiveIndexRef.current : -1;
-
-  // Track when each stage started (client-side only)
-  const stageStartTimesRef = useRef<Record<number, number>>({});
-  const prevActiveIndexRef = useRef<number>(-1);
-
-  // Record timestamp when we first see a new stage become active
-  const displayIndex = isFailed ? failedStageIndex : activeStageIndex;
-  if (!isFailed && activeStageIndex >= 0 && activeStageIndex !== prevActiveIndexRef.current) {
-    stageStartTimesRef.current[activeStageIndex] = Date.now();
-    prevActiveIndexRef.current = activeStageIndex;
-  }
-
-  // Force re-render every second during active polling
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (status === "complete" || status === "posted" || status === "failed") {
-      return;
-    }
-    const id = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [status]);
-
-  const now = Date.now();
-
   return (
     <div role="status" aria-live="polite" aria-label="Review progress" className="flex flex-col gap-0 w-full max-w-sm mx-auto pt-12">
       {STAGES.map((stage, index) => {
         const isCompleted = !isFailed && index < activeStageIndex;
         const isActive = !isFailed && index === activeStageIndex;
-        const isFailed_ = isFailed && index === failedStageIndex;
+        const isFailed_ = isFailed && index === Math.max(0, activeStageIndex);
         const isPending = !isCompleted && !isActive && !isFailed_;
 
-        const startTime = stageStartTimesRef.current[index];
-        const elapsed = startTime != null ? now - startTime : 0;
         const isLast = index === STAGES.length - 1;
 
         return (
@@ -119,17 +99,7 @@ export function StepTimeline({ status, progress, error }: StepTimelineProps) {
                   >
                     {stage.label}
                   </span>
-                  {/* Elapsed time */}
-                  {isCompleted && startTime != null && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatElapsed(elapsed)}
-                    </span>
-                  )}
-                  {isActive && startTime != null && (
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatElapsed(elapsed)}
-                    </span>
-                  )}
+                  {isActive && <ActiveStageElapsed key={stage.label} />}
                 </div>
 
                 {/* Subtitle */}
@@ -148,7 +118,7 @@ export function StepTimeline({ status, progress, error }: StepTimelineProps) {
                 <div className="flex justify-center w-8">
                   <div
                     className={`w-0.5 h-6 ${
-                      index < displayIndex ? "bg-primary" : "bg-border"
+                      index < activeStageIndex ? "bg-primary" : "bg-border"
                     }`}
                   />
                 </div>
