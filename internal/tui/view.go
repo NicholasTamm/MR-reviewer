@@ -44,6 +44,8 @@ func (m Model) render() string {
 		b.WriteString(m.viewConfirm())
 	case ViewAuth:
 		b.WriteString(m.viewAuth())
+	case ViewConfig:
+		b.WriteString(m.viewConfig())
 	case ViewError:
 		b.WriteString(errStyle.Render("  "+m.err) + "\n\n  enter back\n")
 	}
@@ -84,7 +86,7 @@ func (m Model) viewDashboard() string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  j/k move  enter review  / search  l link url  a auth  q quit"))
+	b.WriteString(mutedStyle.Render("  j/k move  enter review  / search  l link  c config  a auth  q quit"))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -209,6 +211,27 @@ func (m Model) viewAuth() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("  enter login  x logout  d xai device  esc back"))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func (m Model) viewConfig() string {
+	mark := func(f configField, label, value string) string {
+		if m.input == inputConfig && m.cfgField == f {
+			value += "█"
+		}
+		line := fmt.Sprintf("  %-12s %s", label, value)
+		if m.cfgField == f {
+			return selStyle.Render(line) + "\n"
+		}
+		return line + "\n"
+	}
+	var b strings.Builder
+	b.WriteString(mark(cfgFieldGitHub, "github api", m.cfgGitHub))
+	b.WriteString(mark(cfgFieldGitLab, "gitlab", m.cfgGitLab))
+	b.WriteString(mark(cfgFieldAnthropic, "anthropic", m.cfgAnthropic))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  tab fields  enter/type edit  s save  esc back"))
 	b.WriteString("\n")
 	return b.String()
 }

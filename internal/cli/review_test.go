@@ -107,6 +107,37 @@ func TestRunReviewJSONDryRunTwice(t *testing.T) {
 	}
 }
 
+func TestRunReviewGitHubEnterpriseUsesConfiguredAPI(t *testing.T) {
+	var posted bool
+	srv := githubFixture(t, &posted)
+	defer srv.Close()
+	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("MR_REVIEWER_GITHUB_API", srv.URL)
+	t.Setenv("MR_REVIEWER_HOME", t.TempDir())
+	t.Setenv("MR_REVIEWER_AUTH", filepath.Join(t.TempDir(), "auth.json"))
+	argv := []string{"https://ghe.example.com/owner/repo/pull/1", "--provider", "echo", "--dry-run"}
+	var out1, out2, err1, err2 bytes.Buffer
+	if code := RunReview(context.Background(), argv, &out1, &err1); code != 0 {
+		t.Fatalf("ghe1 exit %d stderr=%s stdout=%s", code, err1.String(), out1.String())
+	}
+	if posted {
+		t.Fatal("dry-run posted")
+	}
+	if code := RunReview(context.Background(), argv, &out2, &err2); code != 0 {
+		t.Fatalf("ghe2 exit %d %s", code, err2.String())
+	}
+	var r1, r2 review.Result
+	if err := json.Unmarshal(out1.Bytes(), &r1); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out2.Bytes(), &r2); err != nil {
+		t.Fatal(err)
+	}
+	if r1.Summary == "" || r1.Summary != r2.Summary || len(r1.Comments) == 0 {
+		t.Fatalf("inconsistent %+v / %+v", r1, r2)
+	}
+}
+
 func TestRunReviewFailureNonZero(t *testing.T) {
 	t.Setenv("MR_REVIEWER_AUTH", filepath.Join(t.TempDir(), "auth.json"))
 	var out, errb bytes.Buffer
@@ -140,7 +171,7 @@ func TestParseReviewArgsErrorsAndEquals(t *testing.T) {
 
 func TestUsageMentionsHeadless(t *testing.T) {
 	u := Usage()
-	if !strings.Contains(u, "review <url>") || !strings.Contains(u, "--dry-run") {
+	if !strings.Contains(u, "review <url>") || !strings.Contains(u, "--dry-run") || !strings.Contains(u, "--config") {
 		t.Fatalf("%s", u)
 	}
 	_ = os.Stdout

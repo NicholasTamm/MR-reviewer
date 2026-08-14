@@ -22,13 +22,15 @@ func Parse(raw string) (Info, error) {
 	if u.User != nil {
 		return Info{}, fmt.Errorf("MR/PR URLs must not include credentials")
 	}
-	if u.Hostname() == "github.com" {
-		return parseGitHub(u, raw)
-	}
+	// GitLab's /-/merge_requests/ marker is unambiguous (self-hosted included).
 	if strings.Contains(u.Path, "/-/merge_requests/") {
 		return parseGitLab(u, raw)
 	}
-	return Info{}, fmt.Errorf("unsupported URL: %s\nExpected a GitHub PR URL (https://github.com/owner/repo/pull/N) or a GitLab MR URL (https://host/group/project/-/merge_requests/N)", raw)
+	// GitHub-style /owner/repo/pull/N — github.com or GitHub Enterprise.
+	if githubPRPattern.MatchString(u.Path) {
+		return parseGitHub(u, raw)
+	}
+	return Info{}, fmt.Errorf("unsupported URL: %s\nExpected a GitHub PR URL (https://host/owner/repo/pull/N) or a GitLab MR URL (https://host/group/project/-/merge_requests/N)", raw)
 }
 
 // ParseGitLab parses a GitLab MR URL (gitlab.com or self-hosted, nested namespaces).
@@ -46,7 +48,7 @@ func ParseGitLab(raw string) (Info, error) {
 	return parseGitLab(u, raw)
 }
 
-// ParseGitHub parses a github.com pull request URL.
+// ParseGitHub parses a GitHub or GitHub Enterprise pull request URL.
 func ParseGitHub(raw string) (Info, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" {
@@ -82,9 +84,6 @@ func parseGitLab(u *url.URL, raw string) (Info, error) {
 }
 
 func parseGitHub(u *url.URL, raw string) (Info, error) {
-	if u.Hostname() != "github.com" {
-		return Info{}, fmt.Errorf("not a GitHub PR URL (hostname is not github.com): %s", raw)
-	}
 	m := githubPRPattern.FindStringSubmatch(u.Path)
 	if m == nil {
 		return Info{}, fmt.Errorf("could not parse GitHub PR URL: %s", raw)
@@ -93,10 +92,14 @@ func parseGitHub(u *url.URL, raw string) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("could not parse GitHub PR URL: %s", raw)
 	}
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
 	return Info{
 		Platform:  "github",
 		Host:      u.Hostname(),
-		BaseURL:   "https://github.com",
+		BaseURL:   scheme + "://" + u.Host,
 		Namespace: m[githubPRPattern.SubexpIndex("owner")],
 		Project:   m[githubPRPattern.SubexpIndex("repo")],
 		IID:       n,

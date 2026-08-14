@@ -96,10 +96,26 @@ func TestParseGitHubTrailingSlash(t *testing.T) {
 	}
 }
 
-func TestParseGitHubInvalidHostname(t *testing.T) {
-	_, err := ParseGitHub("https://gitlab.com/owner/repo/pull/1")
-	if err == nil || !strings.Contains(err.Error(), "not github.com") {
-		t.Fatalf("err = %v", err)
+func TestParseGitHubEnterpriseHost(t *testing.T) {
+	got, err := ParseGitHub("https://ghe.example.com/acme/api/pull/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Platform != "github" || got.Host != "ghe.example.com" || got.Namespace != "acme" || got.Project != "api" || got.IID != 12 {
+		t.Fatalf("%+v", got)
+	}
+	if got.BaseURL != "https://ghe.example.com" {
+		t.Fatalf("BaseURL = %q", got.BaseURL)
+	}
+}
+
+func TestParseDetectsGitHubEnterprise(t *testing.T) {
+	got, err := Parse("https://github.mycorp.internal/owner/repo/pull/7/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Platform != "github" || got.Host != "github.mycorp.internal" || got.IID != 7 {
+		t.Fatalf("%+v", got)
 	}
 }
 

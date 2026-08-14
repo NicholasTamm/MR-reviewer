@@ -57,7 +57,26 @@ func New(name, model string, store *auth.Store, opts Options) (review.Provider, 
 		url := first(opts.GoogleURL, os.Getenv("MR_REVIEWER_GOOGLE_URL"), BaseURL("google"))
 		return &Google{BaseURL: url, Model: model, Key: auth.BearerSource("google", store)}, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q (want anthropic, openai, xai, google, kimi, deepseek, echo, ollama; gemini is an alias of google)", name)
+		return nil, fmt.Errorf("unknown provider %q (want anthropic, openai, xai, google, kimi, deepseek, echo, ollama or a providers.jsonc slug; gemini is an alias of google)", name)
+	}
+}
+
+// NewCustom builds a review provider for a user-declared providers.jsonc slug.
+func NewCustom(name, model, baseURL, api string, store *auth.Store, apiKeyEnv string) (review.Provider, error) {
+	name = Canonical(strings.ToLower(strings.TrimSpace(name)))
+	if model == "" {
+		model = DefaultModel(name)
+	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("custom provider %s: baseURL is required", name)
+	}
+	key := auth.BearerSourceEnv(name, store, apiKeyEnv)
+	switch strings.ToLower(strings.TrimSpace(api)) {
+	case "anthropic":
+		return &Anthropic{BaseURL: baseURL, Model: model, Key: key}, nil
+	default:
+		return &OpenAICompat{NameID: name, BaseURL: baseURL, Model: model, Key: key}, nil
 	}
 }
 

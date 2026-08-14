@@ -91,6 +91,29 @@ func freshOAuth(ctx context.Context, store *Store, provider string) (Credential,
 	return cred, nil
 }
 
+func BearerSourceEnv(provider string, store *Store, envName string) func(ctx context.Context) (string, error) {
+	provider = canonicalProvider(provider)
+	return func(ctx context.Context) (string, error) {
+		if envName != "" {
+			if key := os.Getenv(envName); key != "" {
+				return key, nil
+			}
+		}
+		if key, ok := APIKey(provider, store); ok {
+			return key, nil
+		}
+		cred, err := freshOAuth(ctx, store, provider)
+		if err != nil {
+			hint := envName
+			if hint == "" {
+				hint = "an API key"
+			}
+			return "", fmt.Errorf("no credentials for %s: set %s or run `mr-reviewer auth login %s`", provider, hint, provider)
+		}
+		return cred.Access, nil
+	}
+}
+
 func BearerSource(provider string, store *Store) func(ctx context.Context) (string, error) {
 	provider = canonicalProvider(provider)
 	return func(ctx context.Context) (string, error) {

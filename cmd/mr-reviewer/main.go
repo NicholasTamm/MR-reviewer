@@ -27,6 +27,12 @@ func run(args []string) int {
 		return cli.RunReview(context.Background(), args[1:], os.Stdout, os.Stderr)
 	case "auth":
 		return cli.RunAuth(args[1:], os.Stdout, os.Stderr)
+	case "--config", "config":
+		if err := tui.RunWith(tui.ViewConfig); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
 	case "help", "-h", "--help":
 		fmt.Fprint(os.Stdout, cli.Usage())
 		return 0

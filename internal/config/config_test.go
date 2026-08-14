@@ -1,6 +1,11 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,7 +15,17 @@ import (
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
+func isolateConfig(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("MR_REVIEWER_HOME", dir)
+	t.Setenv("MR_REVIEWER_CONFIG", "")
+	t.Setenv("MR_REVIEWER_PROVIDERS", "")
+	return dir
+}
+
 func TestLoadDefaults(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MR_REVIEWER_GITLAB_URL", "")
 	t.Setenv("MR_REVIEWER_GITHUB_API", "")
 	t.Setenv("MR_REVIEWER_ALLOW_INSECURE_GITLAB", "")
@@ -34,6 +49,7 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadFromEnv(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MR_REVIEWER_GITLAB_URL", "https://git.example.com/")
 	t.Setenv("MR_REVIEWER_GITHUB_API", "https://github.example/api/")
 	t.Setenv("MR_REVIEWER_ALLOW_INSECURE_GITLAB", "true")
@@ -57,6 +73,7 @@ func TestLoadFromEnv(t *testing.T) {
 }
 
 func TestLoadInvalidMaxCommentsKeepsDefault(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("MR_REVIEWER_MAX_COMMENTS", "nope")
 	if Load().MaxComments != 10 {
 		t.Fatalf("max = %d", Load().MaxComments)
@@ -76,6 +93,7 @@ func TestLoadInvalidMaxCommentsKeepsDefault(t *testing.T) {
 }
 
 func TestPlatformForInsecureGitLabRefused(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("GITLAB_TOKEN", "glpat-test")
 	t.Setenv("MR_REVIEWER_ALLOW_INSECURE_GITLAB", "")
 	s := Load()
@@ -90,6 +108,7 @@ func TestPlatformForInsecureGitLabRefused(t *testing.T) {
 }
 
 func TestPlatformForInsecureGitLabAllowed(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("GITLAB_TOKEN", "glpat-test")
 	t.Setenv("MR_REVIEWER_ALLOW_INSECURE_GITLAB", "1")
 	s := Load()
@@ -108,6 +127,7 @@ func TestPlatformForInsecureGitLabAllowed(t *testing.T) {
 }
 
 func TestPlatformForGitHubUsesEnvTokenAndAPI(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("GITHUB_TOKEN", "ghp-test")
 	t.Setenv("MR_REVIEWER_GITHUB_API", "https://ghe.example/api")
 	s := Load()
@@ -126,6 +146,7 @@ func TestPlatformForGitHubUsesEnvTokenAndAPI(t *testing.T) {
 }
 
 func TestPlatformForMissingToken(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GITLAB_TOKEN", "")
 	s := Load()
@@ -142,6 +163,7 @@ func TestPlatformForMissingToken(t *testing.T) {
 }
 
 func TestPlatformForUsesStoreToken(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("GITHUB_TOKEN", "")
 	s := Load()
 	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
@@ -161,6 +183,7 @@ func TestPlatformForUsesStoreToken(t *testing.T) {
 }
 
 func TestGitLabBrowserRequiresToken(t *testing.T) {
+	isolateConfig(t)
 	t.Setenv("GITLAB_TOKEN", "")
 	s := Load()
 	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
@@ -179,6 +202,7 @@ func TestGitLabBrowserRequiresToken(t *testing.T) {
 }
 
 func TestNewProviderEchoAndUnknown(t *testing.T) {
+	isolateConfig(t)
 	s := Settings{Provider: "echo"}
 	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
 	if err != nil {
@@ -194,5 +218,148 @@ func TestNewProviderEchoAndUnknown(t *testing.T) {
 	}
 	if _, err := s.NewProvider("not-a-vendor", "", st); err == nil {
 		t.Fatal("expected unknown provider")
+	}
+}
+
+func TestSaveLoadEnvOverFile(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("MR_REVIEWER_GITHUB_API", "")
+	t.Setenv("MR_REVIEWER_GITLAB_URL", "")
+	t.Setenv("MR_REVIEWER_ANTHROPIC_URL", "")
+	if err := Save(Settings{
+		GitHubAPI:    "https://ghe.example/api/v3",
+		GitLabURL:    "https://gitlab.example",
+		AnthropicURL: "https://claude.example",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %o", info.Mode().Perm())
+	}
+	s := Load()
+	if s.GitHubAPI != "https://ghe.example/api/v3" || s.GitLabURL != "https://gitlab.example" || s.AnthropicURL != "https://claude.example" {
+		t.Fatalf("file load = %+v", s)
+	}
+	t.Setenv("MR_REVIEWER_GITHUB_API", "https://from-env/api")
+	t.Setenv("MR_REVIEWER_ANTHROPIC_URL", "https://anthropic-env")
+	s = Load()
+	if s.GitHubAPI != "https://from-env/api" || s.AnthropicURL != "https://anthropic-env" {
+		t.Fatalf("env should win: %+v", s)
+	}
+	if s.GitLabURL != "https://gitlab.example" {
+		t.Fatalf("gitlab file value lost: %q", s.GitLabURL)
+	}
+}
+
+func TestParseProvidersJSONCCustomAndOverlay(t *testing.T) {
+	raw := []byte(`
+// custom proxy + builtin overlay
+{
+  "acme": {
+    "npm": "@ai-sdk/openai-compatible",
+    "options": {
+      "baseURL": "https://llm.acme.example/v1",
+      "apiKey": "{env:ACME_API_KEY}"
+    },
+    "models": ["acme-1"]
+  },
+  "anthropic": {
+    "options": { "baseURL": "https://claude.proxy.example" }
+  }
+}
+`)
+	pf, err := ParseProvidersFile(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := FindCustom(pf.Customs, "acme")
+	if !ok || c.BaseURL != "https://llm.acme.example/v1" || c.API != WireOpenAI || c.APIKeyEnv != "ACME_API_KEY" {
+		t.Fatalf("custom = %+v ok=%v", c, ok)
+	}
+	ep, ok := pf.Endpoints["anthropic"]
+	if !ok || ep.BaseURL != "https://claude.proxy.example" {
+		t.Fatalf("overlay = %+v ok=%v", ep, ok)
+	}
+}
+
+func TestNewProviderCustomAndAnthropicOverlayHTTPTest(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("MR_REVIEWER_ANTHROPIC_URL", "")
+	t.Setenv("ACME_API_KEY", "acme-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "ant-secret")
+
+	var customPath, anthPath string
+	customSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		customPath = r.URL.Path
+		if r.Header.Get("Authorization") != "Bearer acme-secret" {
+			t.Errorf("custom auth = %q", r.Header.Get("Authorization"))
+		}
+		args, _ := json.Marshal(map[string]any{
+			"summary": "custom-ok", "comments": []any{},
+		})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"tool_calls": []map[string]any{{
+						"function": map[string]any{"name": "submit_review", "arguments": string(args)},
+					}},
+				},
+			}},
+		})
+	}))
+	defer customSrv.Close()
+	anthSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		anthPath = r.URL.Path
+		if r.Header.Get("x-api-key") != "ant-secret" {
+			t.Errorf("anth key = %q", r.Header.Get("x-api-key"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"content": []map[string]any{{
+				"type": "tool_use", "name": "submit_review",
+				"input": map[string]any{"summary": "anth-ok", "comments": []any{}},
+			}},
+		})
+	}))
+	defer anthSrv.Close()
+
+	body := `{
+  "acme": { "api": "openai", "options": { "baseURL": "` + customSrv.URL + `", "apiKey": "{env:ACME_API_KEY}" } },
+  "anthropic": { "options": { "baseURL": "` + anthSrv.URL + `" } }
+}`
+	if err := os.WriteFile(filepath.Join(HomeDir(), "providers.jsonc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Load()
+	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cp, err := s.NewProvider("acme", "acme-1", st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := cp.Review(context.Background(), "sys", "user")
+	if err != nil || got.Summary != "custom-ok" {
+		t.Fatalf("custom review = %+v err=%v", got, err)
+	}
+	if !strings.Contains(customPath, "chat/completions") {
+		t.Fatalf("custom path = %q", customPath)
+	}
+
+	ap, err := s.NewProvider("anthropic", "claude-test", st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = ap.Review(context.Background(), "sys", "user")
+	if err != nil || got.Summary != "anth-ok" {
+		t.Fatalf("anth review = %+v err=%v", got, err)
+	}
+	if !strings.Contains(anthPath, "messages") {
+		t.Fatalf("anth path = %q", anthPath)
 	}
 }

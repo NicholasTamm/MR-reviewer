@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,14 +17,53 @@ import (
 type Settings struct {
 	GitLabURL           string
 	GitHubAPI           string
+	AnthropicURL        string
 	AllowInsecureGitLab bool
 	Provider            string
 	Model               string
 	Focus               []string
 	MaxComments         int
+	Providers           ProvidersFile
+}
+
+// fileSettings is the persisted subset of Settings.
+type fileSettings struct {
+	GitHubAPI    string `json:"githubAPI,omitempty"`
+	GitLabURL    string `json:"gitlabURL,omitempty"`
+	AnthropicURL string `json:"anthropicURL,omitempty"`
 }
 
 func Load() Settings {
+	file := readFileSettings()
+	pf := LoadProviders()
+
+	githubAPI := "https://api.github.com"
+	if file.GitHubAPI != "" {
+		githubAPI = file.GitHubAPI
+	}
+	if v := os.Getenv("MR_REVIEWER_GITHUB_API"); v != "" {
+		githubAPI = v
+	}
+
+	gitlabURL := "https://gitlab.com"
+	if file.GitLabURL != "" {
+		gitlabURL = file.GitLabURL
+	}
+	if v := os.Getenv("MR_REVIEWER_GITLAB_URL"); v != "" {
+		gitlabURL = v
+	}
+
+	anthropicURL := ""
+	if ep, ok := pf.Endpoints["anthropic"]; ok {
+		anthropicURL = ep.BaseURL
+	}
+	if file.AnthropicURL != "" {
+		anthropicURL = file.AnthropicURL
+	}
+	if v := os.Getenv("MR_REVIEWER_ANTHROPIC_URL"); v != "" {
+		anthropicURL = v
+	}
+
 	focus := review.DefaultFocus
 	if v := os.Getenv("MR_REVIEWER_FOCUS"); v != "" {
 		focus = splitCSV(v)
@@ -34,14 +75,46 @@ func Load() Settings {
 		}
 	}
 	return Settings{
-		GitLabURL:           strings.TrimRight(first(os.Getenv("MR_REVIEWER_GITLAB_URL"), "https://gitlab.com"), "/"),
-		GitHubAPI:           strings.TrimRight(first(os.Getenv("MR_REVIEWER_GITHUB_API"), "https://api.github.com"), "/"),
+		GitLabURL:           strings.TrimRight(gitlabURL, "/"),
+		GitHubAPI:           strings.TrimRight(githubAPI, "/"),
+		AnthropicURL:        strings.TrimRight(anthropicURL, "/"),
 		AllowInsecureGitLab: truthy(os.Getenv("MR_REVIEWER_ALLOW_INSECURE_GITLAB")),
 		Provider:            first(os.Getenv("MR_REVIEWER_PROVIDER"), "anthropic"),
 		Model:               os.Getenv("MR_REVIEWER_MODEL"),
 		Focus:               focus,
 		MaxComments:         maxC,
+		Providers:           pf,
 	}
+}
+
+func readFileSettings() fileSettings {
+	data, err := os.ReadFile(ConfigPath())
+	if err != nil {
+		return fileSettings{}
+	}
+	var fs fileSettings
+	if err := json.Unmarshal(data, &fs); err != nil {
+		return fileSettings{}
+	}
+	return fs
+}
+
+// Save persists GitHub API, GitLab, and Anthropic URLs. Mode 0600.
+func Save(s Settings) error {
+	path := ConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	payload := fileSettings{
+		GitHubAPI:    strings.TrimRight(strings.TrimSpace(s.GitHubAPI), "/"),
+		GitLabURL:    strings.TrimRight(strings.TrimSpace(s.GitLabURL), "/"),
+		AnthropicURL: strings.TrimRight(strings.TrimSpace(s.AnthropicURL), "/"),
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 func (s Settings) PlatformFor(info review.Info, store *auth.Store) (review.Platform, error) {
@@ -85,7 +158,43 @@ func (s Settings) NewProvider(name, model string, store *auth.Store) (review.Pro
 	if model == "" {
 		model = s.Model
 	}
-	return provider.New(name, model, store, provider.Options{})
+	name = CanonicalProviderID(name)
+	if c, ok := FindCustom(s.Providers.Customs, name); ok {
+		if model == "" && len(c.Models) > 0 {
+			model = c.Models[0]
+		}
+		return provider.NewCustom(c.Name, model, c.BaseURL, string(c.API), store, c.APIKeyEnv)
+	}
+	opts := provider.Options{AnthropicURL: s.AnthropicURL}
+	if ep, ok := s.Providers.Endpoints[name]; ok {
+		switch name {
+		case "anthropic":
+			if opts.AnthropicURL == "" {
+				opts.AnthropicURL = ep.BaseURL
+			}
+		case "openai":
+			opts.OpenAIURL = ep.BaseURL
+		case "xai":
+			opts.XAIURL = ep.BaseURL
+		case "google":
+			opts.GoogleURL = ep.BaseURL
+		case "kimi":
+			opts.KimiURL = ep.BaseURL
+		case "deepseek":
+			opts.DeepSeekURL = ep.BaseURL
+		case "ollama":
+			opts.OllamaURL = ep.BaseURL
+		}
+	}
+	return provider.New(name, model, store, opts)
+}
+
+func (s Settings) ProviderNames() []string {
+	names := append([]string{}, provider.Names()...)
+	for _, c := range s.Providers.Customs {
+		names = append(names, c.Name)
+	}
+	return names
 }
 
 func first(vals ...string) string {

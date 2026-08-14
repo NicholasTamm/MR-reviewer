@@ -14,6 +14,16 @@ func TestRunHelp(t *testing.T) {
 	}
 }
 
+func TestConfigArgvIsRecognized(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `"--config"`) || !strings.Contains(string(src), "ViewConfig") {
+		t.Fatal("main must recognize --config and start the config view")
+	}
+}
+
 func TestRunUnknown(t *testing.T) {
 	if code := run([]string{"nope"}); code == 0 {
 		t.Fatal("expected non-zero")

@@ -24,6 +24,7 @@ const (
 	ViewConfirm
 	ViewAuth
 	ViewError
+	ViewConfig
 )
 
 func (v View) String() string {
@@ -42,6 +43,8 @@ func (v View) String() string {
 		return "auth"
 	case ViewError:
 		return "error"
+	case ViewConfig:
+		return "config"
 	default:
 		return "unknown"
 	}
@@ -69,6 +72,15 @@ const (
 	inputEditSummary
 	inputAPIKey
 	inputOAuthPaste
+	inputConfig
+)
+
+type configField int
+
+const (
+	cfgFieldGitHub configField = iota
+	cfgFieldGitLab
+	cfgFieldAnthropic
 )
 
 type hitlComment struct {
@@ -124,6 +136,13 @@ type Model struct {
 	loginFn    func(provider, method, secret string) (string, error)
 	beginOAuth func(provider string) (*auth.PendingLogin, error)
 	device     auth.DeviceConfig
+	saveFn     func(config.Settings) error
+
+	// config panel
+	cfgField     configField
+	cfgGitHub    string
+	cfgGitLab    string
+	cfgAnthropic string
 }
 
 type dashItem struct {
@@ -159,14 +178,16 @@ type deviceCodeMsg struct {
 }
 
 type Deps struct {
-	Store      *auth.Store
-	Settings   config.Settings
-	LoadDash   func(search string) ([]review.ProjectMergeRequests, error)
-	RunReview  func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
-	Post       func(result review.Result) error
-	Login      func(provider, method, secret string) (string, error)
-	BeginOAuth func(provider string) (*auth.PendingLogin, error)
-	Device     auth.DeviceConfig
+	Store        *auth.Store
+	Settings     config.Settings
+	LoadDash     func(search string) ([]review.ProjectMergeRequests, error)
+	RunReview    func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
+	Post         func(result review.Result) error
+	Login        func(provider, method, secret string) (string, error)
+	BeginOAuth   func(provider string) (*auth.PendingLogin, error)
+	Device       auth.DeviceConfig
+	StartView    View
+	SaveSettings func(config.Settings) error
 }
 
 func New(deps Deps) Model {
@@ -175,22 +196,29 @@ func New(deps Deps) Model {
 		cfg = config.Load()
 	}
 	m := Model{
-		width:      80,
-		height:     24,
-		view:       ViewDashboard,
-		cfg:        cfg,
-		store:      deps.Store,
-		provider:   cfg.Provider,
-		model:      cfg.Model,
-		focus:      append([]string{}, cfg.Focus...),
-		maxC:       cfg.MaxComments,
-		loadDash:   deps.LoadDash,
-		runReview:  deps.RunReview,
-		postFn:     deps.Post,
-		loginFn:    deps.Login,
-		beginOAuth: deps.BeginOAuth,
-		device:     deps.Device,
-		authList:   append(auth.BuiltinProviders(), "gitlab", "github"),
+		width:        80,
+		height:       24,
+		view:         ViewDashboard,
+		cfg:          cfg,
+		store:        deps.Store,
+		provider:     cfg.Provider,
+		model:        cfg.Model,
+		focus:        append([]string{}, cfg.Focus...),
+		maxC:         cfg.MaxComments,
+		loadDash:     deps.LoadDash,
+		runReview:    deps.RunReview,
+		postFn:       deps.Post,
+		loginFn:      deps.Login,
+		beginOAuth:   deps.BeginOAuth,
+		device:       deps.Device,
+		saveFn:       deps.SaveSettings,
+		cfgGitHub:    cfg.GitHubAPI,
+		cfgGitLab:    cfg.GitLabURL,
+		cfgAnthropic: cfg.AnthropicURL,
+		authList:     append(auth.BuiltinProviders(), "gitlab", "github"),
+	}
+	if deps.StartView == ViewConfig {
+		m.view = ViewConfig
 	}
 	if m.maxC <= 0 {
 		m.maxC = 10
@@ -346,6 +374,8 @@ func (m Model) handlePaste(s string) (tea.Model, tea.Cmd) {
 		m.editBuf += s
 	case inputOAuthPaste:
 		m.editBuf += s
+	case inputConfig:
+		m.appendConfigField(s)
 	default:
 		if m.view == ViewLink && m.field == fieldURL {
 			m.url += s
@@ -379,6 +409,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.keysConfirm(msg)
 	case ViewAuth:
 		return m.keysAuth(msg)
+	case ViewConfig:
+		return m.keysConfig(msg)
 	case ViewError:
 		if msg.Code == tea.KeyEnter || msg.Code == tea.KeyEsc {
 			m.view = ViewLink
@@ -405,6 +437,8 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.url = trimLast(m.url)
 		case inputModel:
 			m.model = trimLast(m.model)
+		case inputConfig:
+			m.trimConfigField()
 		default:
 			m.editBuf = trimLast(m.editBuf)
 		}
@@ -421,6 +455,8 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.url += ch
 	case inputModel:
 		m.model += ch
+	case inputConfig:
+		m.appendConfigField(ch)
 	default:
 		m.editBuf += ch
 	}
@@ -433,7 +469,7 @@ func (m Model) commitInput() (tea.Model, tea.Cmd) {
 		m.input = inputNone
 		m.cursor = 0
 		return m, m.fetchDash()
-	case inputURL, inputModel:
+	case inputURL, inputModel, inputConfig:
 		m.input = inputNone
 		return m, nil
 	case inputEditComment:
@@ -493,6 +529,13 @@ func (m Model) keysDashboard(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keyText(msg) == "a":
 		m.view = ViewAuth
 		m.authCursor = 0
+		return m, nil
+	case keyText(msg) == "c":
+		m.view = ViewConfig
+		m.cfgField = cfgFieldGitHub
+		m.cfgGitHub = m.cfg.GitHubAPI
+		m.cfgGitLab = m.cfg.GitLabURL
+		m.cfgAnthropic = m.cfg.AnthropicURL
 		return m, nil
 	case msg.Code == tea.KeyDown || keyText(msg) == "j":
 		if m.cursor < len(m.flat)-1 {
@@ -676,6 +719,71 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) keysConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEsc:
+		m.view = ViewDashboard
+		return m, nil
+	case msg.Code == tea.KeyTab || msg.Code == tea.KeyDown || keyText(msg) == "j":
+		m.cfgField = (m.cfgField + 1) % 3
+		return m, nil
+	case msg.Code == tea.KeyUp || keyText(msg) == "k":
+		m.cfgField = (m.cfgField + 2) % 3
+		return m, nil
+	case msg.Code == tea.KeyEnter:
+		m.input = inputConfig
+		return m, nil
+	case keyText(msg) == "s":
+		return m.saveConfig()
+	}
+	if keyText(msg) != "" && msg.Code != tea.KeySpace {
+		m.input = inputConfig
+		m.appendConfigField(keyText(msg))
+	}
+	return m, nil
+}
+
+func (m Model) saveConfig() (tea.Model, tea.Cmd) {
+	next := m.cfg
+	next.GitHubAPI = strings.TrimRight(strings.TrimSpace(m.cfgGitHub), "/")
+	next.GitLabURL = strings.TrimRight(strings.TrimSpace(m.cfgGitLab), "/")
+	next.AnthropicURL = strings.TrimRight(strings.TrimSpace(m.cfgAnthropic), "/")
+	if m.saveFn == nil {
+		if err := config.Save(next); err != nil {
+			m.status = err.Error()
+			return m, nil
+		}
+	} else if err := m.saveFn(next); err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	m.cfg = next
+	m.status = "saved"
+	return m, nil
+}
+
+func (m *Model) appendConfigField(s string) {
+	switch m.cfgField {
+	case cfgFieldGitHub:
+		m.cfgGitHub += s
+	case cfgFieldGitLab:
+		m.cfgGitLab += s
+	case cfgFieldAnthropic:
+		m.cfgAnthropic += s
+	}
+}
+
+func (m *Model) trimConfigField() {
+	switch m.cfgField {
+	case cfgFieldGitHub:
+		m.cfgGitHub = trimLast(m.cfgGitHub)
+	case cfgFieldGitLab:
+		m.cfgGitLab = trimLast(m.cfgGitLab)
+	case cfgFieldAnthropic:
+		m.cfgAnthropic = trimLast(m.cfgAnthropic)
+	}
+}
+
 func (m Model) waitOAuth(prov string, pending *auth.PendingLogin) tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
@@ -736,7 +844,10 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) cycleProvider(delta int) {
-	names := []string{"anthropic", "openai", "xai", "google", "kimi", "deepseek", "echo"}
+	names := m.cfg.ProviderNames()
+	if len(names) == 0 {
+		names = []string{"anthropic", "openai", "xai", "google", "kimi", "deepseek", "echo"}
+	}
 	i := 0
 	for j, n := range names {
 		if n == m.provider {
@@ -820,10 +931,13 @@ func (m Model) ApprovedCount() int {
 	}
 	return n
 }
-func (m Model) PostedCount() int { return m.postedN }
-func (m Model) Error() string    { return m.err }
-func (m Model) Status() string   { return m.status }
-func (m Model) Search() string   { return m.search }
+func (m Model) PostedCount() int        { return m.postedN }
+func (m Model) Error() string           { return m.err }
+func (m Model) Status() string          { return m.status }
+func (m Model) Search() string          { return m.search }
+func (m Model) ConfigGitHubAPI() string { return m.cfgGitHub }
+func (m Model) ConfigGitLabURL() string { return m.cfgGitLab }
+func (m Model) ConfigAnthropic() string { return m.cfgAnthropic }
 func (m Model) CommentBody(i int) string {
 	if i < 0 || i >= len(m.comments) {
 		return ""

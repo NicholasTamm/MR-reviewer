@@ -272,9 +272,56 @@ func TestAllViewsReachable(t *testing.T) {
 	m, cmd = applyKey(m, key('p'))
 	m = drain(t, m, cmd)
 	seen[m.ViewName()] = true
-	for _, v := range []View{ViewDashboard, ViewLink, ViewReviewing, ViewHITL, ViewConfirm, ViewAuth} {
+	m, _ = applyKey(m, key('n'))
+	m, _ = applyKey(m, key('c'))
+	seen[m.ViewName()] = true
+	for _, v := range []View{ViewDashboard, ViewLink, ViewReviewing, ViewHITL, ViewConfirm, ViewAuth, ViewConfig} {
 		if !seen[v] {
 			t.Errorf("view %s never reached", v)
 		}
+	}
+}
+
+func TestConfigPanelOpenEditSave(t *testing.T) {
+	var saved config.Settings
+	m := New(Deps{
+		Settings: config.Settings{
+			GitHubAPI: "https://api.github.com", GitLabURL: "https://gitlab.com",
+			AnthropicURL: "https://api.anthropic.com", Provider: "echo",
+			Focus: []string{"bugs"}, MaxComments: 10,
+		},
+		StartView: ViewConfig,
+		LoadDash:  func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
+		SaveSettings: func(s config.Settings) error {
+			saved = s
+			return nil
+		},
+	})
+	if m.ViewName() != ViewConfig {
+		t.Fatalf("view = %s", m.ViewName())
+	}
+	if !strings.Contains(m.render(), "github api") || !strings.Contains(m.render(), "gitlab") || !strings.Contains(m.render(), "anthropic") {
+		t.Fatalf("config view =\n%s", m.render())
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	for _, r := range "/v3" {
+		m, _ = applyKey(m, key(r))
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	m, _ = applyKey(m, special(tea.KeyTab))
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	for _, r := range ".internal" {
+		m, _ = applyKey(m, key(r))
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	m, _ = applyKey(m, key('s'))
+	if saved.GitHubAPI != "https://api.github.com/v3" {
+		t.Fatalf("github saved = %q status=%q", saved.GitHubAPI, m.Status())
+	}
+	if saved.GitLabURL != "https://gitlab.com.internal" {
+		t.Fatalf("gitlab saved = %q", saved.GitLabURL)
+	}
+	if m.Status() != "saved" {
+		t.Fatalf("status = %q", m.Status())
 	}
 }

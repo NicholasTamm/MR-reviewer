@@ -176,6 +176,7 @@ mr-reviewer — AI merge request reviewer
 
 Usage:
   mr-reviewer                         start the TUI
+  mr-reviewer --config                open the settings panel
   mr-reviewer review <url> [flags]    headless review (JSON on stdout)
   mr-reviewer auth login <provider> [--api-key] [--device]
   mr-reviewer auth status

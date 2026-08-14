@@ -80,6 +80,11 @@ func (s *liveSession) login(provider, method, secret string) (string, error) {
 
 // Run starts the Bubble Tea 2 TUI.
 func Run() error {
+	return RunWith(ViewDashboard)
+}
+
+// RunWith starts the TUI on the given view (ViewConfig for --config).
+func RunWith(start View) error {
 	store, err := auth.OpenStore(auth.DefaultPath())
 	if err != nil {
 		return err
@@ -87,13 +92,23 @@ func Run() error {
 	cfg := config.Load()
 	sess := &liveSession{cfg: cfg, store: store}
 	m := New(Deps{
-		Store:     store,
-		Settings:  cfg,
-		LoadDash:  sess.loadDash,
-		RunReview: sess.runReview,
-		Post:      sess.post,
-		Login:     sess.login,
+		Store:        store,
+		Settings:     cfg,
+		LoadDash:     sess.loadDash,
+		RunReview:    sess.runReview,
+		Post:         sess.post,
+		Login:        sess.login,
+		StartView:    start,
+		SaveSettings: sess.saveSettings,
 	})
 	_, err = tea.NewProgram(m).Run()
 	return err
+}
+
+func (s *liveSession) saveSettings(st config.Settings) error {
+	if err := config.Save(st); err != nil {
+		return err
+	}
+	s.cfg = config.Load()
+	return nil
 }
