@@ -25,18 +25,22 @@ Requires Go 1.25+ (see `go.mod`).
 
 1. **Platform token** — GitLab for the dashboard, plus GitHub if you review PRs:
    ```bash
-   ./mr-reviewer auth login gitlab    # paste a GITLAB_TOKEN (api scope)
-   ./mr-reviewer auth login github    # paste a GITHUB_TOKEN
+   ./mr-reviewer auth login gitlab                 # hidden TTY prompt (or stdin)
+   ./mr-reviewer auth login github --api-key       # same, explicit
+   ./mr-reviewer auth login gitlab --api-key glpat-...   # non-interactive
+   ./mr-reviewer auth status
    ```
    Or export `GITLAB_TOKEN` / `GITHUB_TOKEN`. Env vars win over stored keys.
 
-2. **Model provider** — one of `anthropic`, `openai`, `xai`, `google` (`gemini` alias), `kimi`, `deepseek`, or `echo` (offline):
+2. **Model provider** — same contract as strike: `anthropic`, `openai`, `xai`, `google` (`gemini` alias), `kimi`, `deepseek`, or `echo` (offline):
    ```bash
-   ./mr-reviewer auth login anthropic          # API key
-   ./mr-reviewer auth login openai             # Sign in with ChatGPT (browser)
-   ./mr-reviewer auth login xai                # browser OAuth
-   ./mr-reviewer auth login xai --device       # headless / SSH
+   ./mr-reviewer auth login anthropic --api-key    # paste a key
+   ./mr-reviewer auth login openai                 # Sign in with ChatGPT (localhost:1455)
+   ./mr-reviewer auth login openai --api-key       # paste an OpenAI key instead
+   ./mr-reviewer auth login xai                    # browser OAuth (127.0.0.1:56121)
+   ./mr-reviewer auth login xai --device           # headless / SSH
    ./mr-reviewer auth status
+   ./mr-reviewer auth logout gitlab
    ```
    Or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `KIMI_API_KEY`, `DEEPSEEK_API_KEY`.
 
