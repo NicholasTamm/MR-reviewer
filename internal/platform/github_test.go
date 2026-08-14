@@ -73,6 +73,27 @@ func TestGitHubFetchAndDryPost(t *testing.T) {
 	}
 }
 
+func TestGitHubFetchErrorAndMissingFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/contents/") {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "nope", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := &GitHub{BaseURL: srv.URL, Token: "tok"}
+	info := review.Info{Namespace: "owner", Project: "repo", IID: 9}
+	_, err := c.FetchChanges(context.Background(), info)
+	if err == nil || !strings.Contains(err.Error(), "failed to fetch PR") {
+		t.Fatalf("err = %v", err)
+	}
+	body, ok, err := c.FetchFile(context.Background(), info, "gone.py", "main")
+	if err != nil || ok || body != "" {
+		t.Fatalf("missing file body=%q ok=%v err=%v", body, ok, err)
+	}
+}
+
 func TestGitHubPostRequiresFetch(t *testing.T) {
 	c := &GitHub{BaseURL: "http://127.0.0.1:1"}
 	err := c.PostReview(context.Background(), review.Info{Namespace: "o", Project: "r", IID: 1}, review.Result{Summary: "x"}, nil)

@@ -193,6 +193,15 @@ func TestRunBudgetKeepsErrors(t *testing.T) {
 	}
 }
 
+func TestRunRequiresProviderAndPlatform(t *testing.T) {
+	if _, err := Run(context.Background(), Options{URL: "https://github.com/o/r/pull/1", Platform: &fakePlatform{}}); err == nil {
+		t.Fatal("expected missing provider")
+	}
+	if _, err := Run(context.Background(), Options{URL: "https://github.com/o/r/pull/1", Provider: &fakeProvider{}}); err == nil {
+		t.Fatal("expected missing platform")
+	}
+}
+
 func TestRunInvalidURL(t *testing.T) {
 	_, err := Run(context.Background(), Options{
 		URL: "https://example.com/not-a-pr", Provider: &fakeProvider{}, Platform: &fakePlatform{},

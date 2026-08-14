@@ -119,6 +119,25 @@ func TestRunReviewFailureNonZero(t *testing.T) {
 	}
 }
 
+func TestParseReviewArgsErrorsAndEquals(t *testing.T) {
+	if _, err := ParseReviewArgs(nil); err == nil {
+		t.Fatal("missing url")
+	}
+	if _, err := ParseReviewArgs([]string{"https://github.com/o/r/pull/1", "--post", "--dry-run"}); err == nil || !strings.Contains(err.Error(), "cannot combine") {
+		t.Fatalf("err = %v", err)
+	}
+	got, err := ParseReviewArgs([]string{"--provider=echo", "--focus=bugs,style", "--max-comments=3", "https://github.com/o/r/pull/2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != "echo" || got.URL != "https://github.com/o/r/pull/2" || got.MaxComments != 3 {
+		t.Fatalf("%+v", got)
+	}
+	if len(got.Focus) != 2 || got.Focus[0] != "bugs" {
+		t.Fatalf("focus = %v", got.Focus)
+	}
+}
+
 func TestUsageMentionsHeadless(t *testing.T) {
 	u := Usage()
 	if !strings.Contains(u, "review <url>") || !strings.Contains(u, "--dry-run") {

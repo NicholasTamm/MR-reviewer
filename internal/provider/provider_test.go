@@ -141,6 +141,37 @@ func TestGoogleGenerateContentViaHTTPTest(t *testing.T) {
 	}
 }
 
+func TestParseReviewJSONShapes(t *testing.T) {
+	empty, err := parseReviewJSON("")
+	if err != nil || empty.Summary != "Empty model response." || empty.Comments == nil {
+		t.Fatalf("%+v %v", empty, err)
+	}
+	fenced := "here\n```json\n{\"summary\":\"ok\",\"comments\":[{\"file\":\"a.go\",\"line\":2,\"body\":\"n\"}]}\n```\n"
+	got, err := parseReviewJSON(fenced)
+	if err != nil || got.Summary != "ok" || len(got.Comments) != 1 || got.Comments[0].Severity != "info" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	wrapped := "prefix {\"summary\":\"w\",\"comments\":[]} suffix"
+	got, err = parseReviewJSON(wrapped)
+	if err != nil || got.Summary != "w" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	plain, err := parseReviewJSON("not json at all")
+	if err != nil || plain.Summary != "not json at all" || plain.Comments == nil {
+		t.Fatalf("%+v %v", plain, err)
+	}
+}
+
+func TestFactoryUnknownProvider(t *testing.T) {
+	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New("not-real", "", st, Options{}); err == nil {
+		t.Fatal("expected unknown provider")
+	}
+}
+
 func TestFactoryGeminiAliasAndEcho(t *testing.T) {
 	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
 	if err != nil {

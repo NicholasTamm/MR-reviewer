@@ -144,6 +144,13 @@ func TestParseDetectsGitLab(t *testing.T) {
 	}
 }
 
+func TestParseGitLabMalformedPathAfterMarker(t *testing.T) {
+	_, err := ParseGitLab("https://gitlab.com/-/merge_requests/1")
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
 func TestParseUnsupported(t *testing.T) {
 	_, err := Parse("https://bitbucket.org/owner/repo/pull-requests/1")
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "unsupported") {

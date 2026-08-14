@@ -114,6 +114,14 @@ func TestGitLabFetchPostAndDashboard(t *testing.T) {
 	}
 }
 
+func TestGitLabPostRequiresFetch(t *testing.T) {
+	c := &GitLab{BaseURL: "http://127.0.0.1:1"}
+	err := c.PostReview(context.Background(), review.Info{Namespace: "g", Project: "p", IID: 1}, review.Result{Summary: "x"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "FetchChanges") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestGitLabSearchFilters(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{{
