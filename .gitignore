@@ -11,6 +11,11 @@ build/
 .venv/
 venv/
 
+# Go
+/mr-reviewer
+/mr-reviewer.exe
+*.test
+
 # Editor
 .vscode/
 .idea/
