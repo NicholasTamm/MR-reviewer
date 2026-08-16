@@ -163,7 +163,7 @@ func ResolvePlatformCredential(ctx context.Context, target PlatformTarget, store
 	if !ok || cred.Token == "" {
 		return PlatformCredential{}, ErrPlatformLoginRequired
 	}
-	if cred.Type == PlatformPAT || time.Until(cred.ExpiresAt) > refreshSkew {
+	if cred.Type == PlatformPAT || cred.ExpiresAt.IsZero() || time.Until(cred.ExpiresAt) > refreshSkew {
 		return cred, nil
 	}
 	return store.refreshPlatform(ctx, normalized, cred)

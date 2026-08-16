@@ -42,26 +42,45 @@ func GitLabDeviceFlow(clientID string) (DeviceConfig, error) {
 }
 
 func refreshPlatformOAuth(ctx context.Context, target PlatformTarget, credential PlatformCredential) (PlatformCredential, error) {
-	if target.Platform != "gitlab" || !target.IsPublicCloud() || credential.Type != PlatformOAuth || credential.Refresh == "" || credential.ClientID == "" {
+	if !target.IsPublicCloud() || credential.Type != PlatformOAuth || credential.Refresh == "" || credential.ClientID == "" {
 		return PlatformCredential{}, ErrPlatformLoginRequired
 	}
-	flow, err := GitLabFlow(credential.ClientID)
-	if err != nil {
-		return PlatformCredential{}, err
+	switch target.Platform {
+	case "gitlab":
+		flow, err := GitLabFlow(credential.ClientID)
+		if err != nil {
+			return PlatformCredential{}, err
+		}
+		tokens, err := flow.Refresh(ctx, credential.Refresh)
+		if err != nil {
+			return PlatformCredential{}, err
+		}
+		return PlatformCredential{Type: PlatformOAuth, Token: tokens.Access, Refresh: tokens.Refresh, ExpiresAt: tokens.ExpiresAt, ClientID: credential.ClientID}, nil
+	case "github":
+		return refreshGitHubOAuth(ctx, credential)
+	default:
+		return PlatformCredential{}, ErrPlatformLoginRequired
 	}
-	tokens, err := flow.Refresh(ctx, credential.Refresh)
-	if err != nil {
-		return PlatformCredential{}, err
-	}
-	return PlatformCredential{Type: PlatformOAuth, Token: tokens.Access, Refresh: tokens.Refresh, ExpiresAt: tokens.ExpiresAt, ClientID: credential.ClientID}, nil
 }
 
 func CompletePlatformLogin(ctx context.Context, store *Store, target PlatformTarget, clientID string, tokens *Tokens) (string, error) {
 	if store == nil || tokens == nil || tokens.Access == "" {
-		return "", errors.New("missing GitLab OAuth tokens")
+		return "", errors.New("missing platform OAuth tokens")
 	}
-	if err := store.SetPlatform(ctx, target, PlatformCredential{Type: PlatformOAuth, Token: tokens.Access, Refresh: tokens.Refresh, ExpiresAt: tokens.ExpiresAt, ClientID: strings.TrimSpace(clientID)}); err != nil {
+	clientID = strings.TrimSpace(clientID)
+	if target.Platform == "github" {
+		if !target.IsPublicCloud() {
+			return "", errors.New("GitHub OAuth device login supports GitHub.com only")
+		}
+		if clientID == "" {
+			return "", errors.New("GitHub OAuth credentials require a client ID")
+		}
+		if err := ValidateGitHubScopes(tokens); err != nil {
+			return "", err
+		}
+	}
+	if err := store.SetPlatform(ctx, target, PlatformCredential{Type: PlatformOAuth, Token: tokens.Access, Refresh: tokens.Refresh, ExpiresAt: tokens.ExpiresAt, ClientID: clientID}); err != nil {
 		return "", err
 	}
-	return "Logged in to gitlab", nil
+	return "Logged in to " + target.Platform, nil
 }

@@ -32,7 +32,7 @@ Login methods:
   deepseek    paste a key
   gitlab      browser OAuth with PKCE (requires your registered client ID),
               --device for headless login, or --api-key for a PAT
-  github      paste a GITHUB_TOKEN (PAT)
+  github      device OAuth (requires your registered client ID), or --api-key for a PAT
 
 --api-key with no value prompts (hidden on a TTY). --api-key TOKEN stores
 the token without a prompt (useful in scripts).
@@ -40,13 +40,19 @@ the token without a prompt (useful in scripts).
 Env vars take precedence over stored credentials:
   ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY,
   GEMINI_API_KEY / GOOGLE_API_KEY, KIMI_API_KEY, DEEPSEEK_API_KEY,
-   GITLAB_TOKEN, GITHUB_TOKEN. GitLab OAuth client ID: GITLAB_OAUTH_CLIENT_ID.
+   GITLAB_TOKEN, GITHUB_TOKEN. OAuth client IDs: GITLAB_OAUTH_CLIENT_ID,
+   GITHUB_OAUTH_CLIENT_ID.
 
 GitLab OAuth setup: create your own application at
 https://gitlab.com/-/user_settings/applications. Set its redirect URI to
 http://127.0.0.1:8620/oauth/callback, select only the api scope, then provide
 its Application ID with --client-id or GITLAB_OAUTH_CLIENT_ID. Do not provide
 or store the application secret; GitLab PKCE does not require it.
+
+GitHub OAuth setup: register your own OAuth App at
+https://github.com/settings/developers, enable Device Flow, select only the
+repo scope when prompted, then provide its Client ID with --client-id or
+GITHUB_OAUTH_CLIENT_ID. Do not provide or store the application secret.
 `
 
 // promptSecret is the strike-shaped secret reader. Tests replace it.
@@ -160,7 +166,13 @@ func runAuthLogin(store *auth.Store, args []string, stdout io.Writer) error {
 
 	switch prov {
 	case "github":
-		return loginPlatformPAT(store, prov, keyValue, stdout)
+		if useAPIKey {
+			return loginPlatformPAT(store, prov, keyValue, stdout)
+		}
+		if clientID == "" {
+			clientID = auth.GitHubOAuthClientID()
+		}
+		return loginGitHubDevice(ctx, store, clientID, stdout)
 	case "gitlab":
 		if useAPIKey {
 			return loginPlatformPAT(store, prov, keyValue, stdout)
@@ -315,6 +327,29 @@ func loginGitLabDevice(ctx context.Context, store *auth.Store, clientID string, 
 		return err
 	}
 	target, _ := auth.PublicTarget("gitlab")
+	msg, err := auth.CompletePlatformLogin(ctx, store, target, clientID, tokens)
+	if err != nil {
+		return err
+	}
+	fprintln(stdout, msg)
+	return nil
+}
+
+func loginGitHubDevice(ctx context.Context, store *auth.Store, clientID string, stdout io.Writer) error {
+	flow, err := auth.GitHubDeviceFlow(clientID)
+	if err != nil {
+		return err
+	}
+	code, err := flow.RequestCode(ctx)
+	if err != nil {
+		return err
+	}
+	fprintf(stdout, "Open %s on any device and enter code: %s\nWaiting for authorization…\n", code.VerificationURI, code.UserCode)
+	tokens, err := flow.Poll(ctx, code)
+	if err != nil {
+		return err
+	}
+	target, _ := auth.PublicTarget("github")
 	msg, err := auth.CompletePlatformLogin(ctx, store, target, clientID, tokens)
 	if err != nil {
 		return err
