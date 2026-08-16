@@ -19,6 +19,13 @@ func PersistLogin(ctx context.Context, store *auth.Store, provider, method strin
 		if apiKey == "" {
 			return "", fmt.Errorf("empty key")
 		}
+		if provider == "gitlab" || provider == "github" {
+			target, _ := auth.PublicTarget(provider)
+			if err := store.SetPlatform(ctx, target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: apiKey}); err != nil {
+				return "", err
+			}
+			return "Stored " + provider + " personal access token", nil
+		}
 		if err := store.Set(provider, auth.Credential{Type: auth.TypeAPIKey, APIKey: apiKey}); err != nil {
 			return "", err
 		}
@@ -42,6 +49,10 @@ func FinishOAuth(ctx context.Context, store *auth.Store, provider string, pendin
 	tokens, err := pending.Wait(ctx)
 	if err != nil {
 		return "", err
+	}
+	if provider == "gitlab" {
+		target, _ := auth.PublicTarget(provider)
+		return auth.CompletePlatformLogin(ctx, store, target, pending.ClientID(), tokens)
 	}
 	return PersistLogin(ctx, store, provider, "oauth", tokens, "")
 }

@@ -169,3 +169,24 @@ func TestPlatformOAuthRefreshIsSingleFlightAndFailsWithoutSecrets(t *testing.T) 
 		t.Fatalf("refresh failure = %v", err)
 	}
 }
+
+func TestGitLabOAuthRefreshUsesOnlyItsStoredClientID(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := PublicTarget("gitlab")
+	if err := store.SetPlatform(context.Background(), target, PlatformCredential{Type: PlatformOAuth, Token: "expired", Refresh: "refresh", ClientID: "client-id", ExpiresAt: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	var gotTarget PlatformTarget
+	var gotCredential PlatformCredential
+	store.SetPlatformRefresher(func(_ context.Context, target PlatformTarget, credential PlatformCredential) (PlatformCredential, error) {
+		gotTarget, gotCredential = target, credential
+		return PlatformCredential{Type: PlatformOAuth, Token: "fresh", Refresh: "next", ClientID: credential.ClientID, ExpiresAt: time.Now().Add(time.Hour)}, nil
+	})
+	credential, err := ResolvePlatformCredential(context.Background(), target, store)
+	if err != nil || credential.Token != "fresh" || gotTarget != target || gotCredential.ClientID != "client-id" {
+		t.Fatalf("credential=%+v target=%+v supplied=%+v err=%v", credential, gotTarget, gotCredential, err)
+	}
+}

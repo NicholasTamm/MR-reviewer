@@ -81,6 +81,9 @@ type PendingLogin struct {
 }
 
 func (f FlowConfig) Begin() (*PendingLogin, error) {
+	if strings.TrimSpace(f.AuthorizeURL) == "" || strings.TrimSpace(f.TokenURL) == "" || strings.TrimSpace(f.ClientID) == "" || strings.TrimSpace(f.Scope) == "" || strings.TrimSpace(f.RedirectHost) == "" || f.RedirectPort <= 0 || strings.TrimSpace(f.RedirectPath) == "" {
+		return nil, fmt.Errorf("incomplete OAuth configuration")
+	}
 	pkce := newPKCE()
 	state := randomURLSafe(32)
 
@@ -141,6 +144,13 @@ func (f FlowConfig) Begin() (*PendingLogin, error) {
 
 	openBrowser(authorizeURL)
 	return p, nil
+}
+
+func (p *PendingLogin) ClientID() string {
+	if p == nil {
+		return ""
+	}
+	return p.flow.ClientID
 }
 
 func (p *PendingLogin) LoopbackListening() bool {

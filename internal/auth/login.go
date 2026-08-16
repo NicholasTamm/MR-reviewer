@@ -47,6 +47,17 @@ func Describe(provider string, store *Store) string {
 	if store == nil {
 		return "none"
 	}
+	if provider == "gitlab" || provider == "github" {
+		target, _ := PublicTarget(provider)
+		credential, ok := store.GetPlatform(target)
+		if !ok {
+			return "none"
+		}
+		if credential.Type == PlatformPAT {
+			return "personal access token"
+		}
+		return "oauth"
+	}
 	cred, ok := store.Get(provider)
 	if !ok {
 		return "none"

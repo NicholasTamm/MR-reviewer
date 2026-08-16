@@ -19,6 +19,7 @@ func withAuthStore(t *testing.T) string {
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY",
 		"GEMINI_API_KEY", "GOOGLE_API_KEY", "KIMI_API_KEY", "DEEPSEEK_API_KEY",
 		"GITLAB_TOKEN", "GITHUB_TOKEN",
+		"GITLAB_OAUTH_CLIENT_ID",
 	} {
 		t.Setenv(k, "")
 	}
@@ -152,6 +153,17 @@ func TestRunAuthLoginGitLabAndGitHubAPIKeyResolves(t *testing.T) {
 	tok, err = auth.PlatformToken("github", st)
 	if err != nil || tok != "ghp-cli-token" {
 		t.Fatalf("PlatformToken github = %q err=%v", tok, err)
+	}
+}
+
+func TestRunAuthGitLabOAuthRequiresRegisteredClientID(t *testing.T) {
+	withAuthStore(t)
+	var out, errb bytes.Buffer
+	if code := RunAuth([]string{"login", "gitlab"}, &out, &errb); code == 0 {
+		t.Fatal("GitLab OAuth login without a client ID should fail")
+	}
+	if !strings.Contains(errb.String(), "GITLAB_OAUTH_CLIENT_ID") || !strings.Contains(errb.String(), "user_settings/applications") {
+		t.Fatalf("error = %q", errb.String())
 	}
 }
 
@@ -306,6 +318,18 @@ func TestParseAPIKeyFlag(t *testing.T) {
 	used, val = parseAPIKeyFlag([]string{"--api-key=tok2"})
 	if !used || val != "tok2" {
 		t.Fatalf("equals: %v %q", used, val)
+	}
+}
+
+func TestFlagValue(t *testing.T) {
+	if got := flagValue([]string{"--client-id", "id"}, "--client-id"); got != "id" {
+		t.Fatalf("spaced flag = %q", got)
+	}
+	if got := flagValue([]string{"--client-id=id"}, "--client-id"); got != "id" {
+		t.Fatalf("equals flag = %q", got)
+	}
+	if got := flagValue([]string{"--client-id", "--device"}, "--client-id"); got != "" {
+		t.Fatalf("missing value = %q", got)
 	}
 }
 

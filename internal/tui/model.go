@@ -173,8 +173,9 @@ type authDoneMsg struct {
 }
 
 type deviceCodeMsg struct {
-	code *auth.DeviceCode
-	cfg  auth.DeviceConfig
+	code     *auth.DeviceCode
+	cfg      auth.DeviceConfig
+	provider string
 }
 
 type Deps struct {
@@ -339,7 +340,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return authDoneMsg{err: err}
 			}
-			out, err := PersistLogin(ctx, store, "xai", "device", tok, "")
+			var out string
+			if msg.provider == "gitlab" {
+				target, _ := auth.PublicTarget("gitlab")
+				out, err = auth.CompletePlatformLogin(ctx, store, target, msg.cfg.ClientID, tok)
+			} else {
+				out, err = PersistLogin(ctx, store, "xai", "device", tok, "")
+			}
 			return authDoneMsg{message: out, err: err}
 		}
 	case authDoneMsg:
@@ -696,17 +703,31 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case keyText(msg) == "x":
 		if m.store != nil && m.authCursor >= 0 && m.authCursor < len(m.authList) {
-			_ = m.store.Delete(m.authList[m.authCursor])
-			m.status = "logged out of " + m.authList[m.authCursor]
+			provider := m.authList[m.authCursor]
+			if provider == "gitlab" || provider == "github" {
+				target, _ := auth.PublicTarget(provider)
+				_ = m.store.DeletePlatform(context.Background(), target)
+			} else {
+				_ = m.store.Delete(provider)
+			}
+			m.status = "logged out of " + provider
 		}
 	case keyText(msg) == "d":
-		if m.authList[m.authCursor] == "xai" {
-			return m.startLogin("xai", "device")
+		if provider := m.authList[m.authCursor]; provider == "xai" || provider == "gitlab" {
+			return m.startLogin(provider, "device")
+		}
+	case keyText(msg) == "k":
+		if m.authList[m.authCursor] == "gitlab" {
+			m.authProv = "gitlab"
+			m.input = inputAPIKey
+			m.editBuf = ""
+			m.status = "paste GitLab personal access token, enter to save"
+			return m, nil
 		}
 	case msg.Code == tea.KeyEnter:
 		prov := m.authList[m.authCursor]
 		switch prov {
-		case "openai", "xai":
+		case "openai", "xai", "gitlab":
 			return m.startLogin(prov, "oauth")
 		default:
 			m.authProv = prov
@@ -796,7 +817,14 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 	m.authProv = prov
 	if method == "device" {
 		cfg := m.device
-		if cfg.DeviceURL == "" {
+		if prov == "gitlab" {
+			var err error
+			cfg, err = auth.GitLabDeviceFlow(auth.GitLabOAuthClientID())
+			if err != nil {
+				m.status = err.Error()
+				return m, nil
+			}
+		} else if cfg.DeviceURL == "" {
 			cfg = auth.XAIDeviceFlow()
 		}
 		return m, func() tea.Msg {
@@ -804,10 +832,10 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return authDoneMsg{err: err}
 			}
-			return deviceCodeMsg{code: code, cfg: cfg}
+			return deviceCodeMsg{code: code, cfg: cfg, provider: prov}
 		}
 	}
-	if method == "oauth" && (prov == "openai" || prov == "xai") {
+	if method == "oauth" && (prov == "openai" || prov == "xai" || prov == "gitlab") {
 		var (
 			p   *auth.PendingLogin
 			err error
@@ -818,6 +846,12 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 			flow := auth.OpenAIFlow()
 			if prov == "xai" {
 				flow = auth.XAIFlow()
+			} else if prov == "gitlab" {
+				flow, err = auth.GitLabFlow(auth.GitLabOAuthClientID())
+				if err != nil {
+					m.status = err.Error()
+					return m, nil
+				}
 			}
 			p, err = flow.Begin()
 		}

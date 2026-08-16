@@ -210,7 +210,7 @@ func (m Model) viewAuth() string {
 		b.WriteString("\n  " + mutedStyle.Render(m.pending.URL) + "\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  enter login  x logout  d xai device  esc back"))
+	b.WriteString(mutedStyle.Render("  enter login  k GitLab PAT  d device (xAI/GitLab)  x logout  esc back"))
 	b.WriteString("\n")
 	return b.String()
 }
