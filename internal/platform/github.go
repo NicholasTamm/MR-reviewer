@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -18,10 +19,10 @@ const maxFiles = 3000
 
 // GitHub talks to the GitHub REST API.
 type GitHub struct {
-	BaseURL string
-	Token   string
-	HTTP    *http.Client
-	headSHA string
+	BaseURL     string
+	Credentials func(context.Context) (auth.PlatformCredential, error)
+	HTTP        *http.Client
+	headSHA     string
 }
 
 func (c *GitHub) client() *http.Client {
@@ -52,8 +53,8 @@ func (c *GitHub) do(ctx context.Context, method, path string, body any, accept s
 	if err != nil {
 		return nil, err
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+	if err := c.applyAuth(ctx, req); err != nil {
+		return nil, err
 	}
 	if accept != "" {
 		req.Header.Set("Accept", accept)
@@ -65,6 +66,17 @@ func (c *GitHub) do(ctx context.Context, method, path string, body any, accept s
 		req.Header.Set("Content-Type", "application/json")
 	}
 	return c.client().Do(req)
+}
+
+func (c *GitHub) applyAuth(ctx context.Context, req *http.Request) error {
+	if c.Credentials == nil {
+		return nil
+	}
+	credential, err := c.Credentials(ctx)
+	if err != nil {
+		return err
+	}
+	return auth.ApplyPlatformAuth(req.Header, "github", credential)
 }
 
 // FetchChanges implements review.Platform.

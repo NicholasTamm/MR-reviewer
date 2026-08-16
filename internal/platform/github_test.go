@@ -3,12 +3,15 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -49,7 +52,9 @@ func TestGitHubFetchAndDryPost(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &GitHub{BaseURL: srv.URL, Token: "tok"}
+	c := &GitHub{BaseURL: srv.URL, Credentials: func(context.Context) (auth.PlatformCredential, error) {
+		return auth.PlatformCredential{Type: auth.PlatformPAT, Token: "tok"}, nil
+	}}
 	info := review.Info{Platform: "github", Host: "github.com", Namespace: "owner", Project: "repo", IID: 1}
 	fr, err := c.FetchChanges(context.Background(), info)
 	if err != nil {
@@ -73,6 +78,29 @@ func TestGitHubFetchAndDryPost(t *testing.T) {
 	}
 }
 
+func TestGitHubRejectsMismatchedCredentialBeforeDispatch(t *testing.T) {
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _ := auth.PublicTarget("github")
+	if err := store.SetPlatform(context.Background(), public, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
+	target, _ := auth.NewPlatformTarget("github", "https://ghe.example", srv.URL)
+	client := &GitHub{BaseURL: srv.URL, Credentials: auth.PlatformCredentialSource(target, store)}
+	_, err = client.FetchChanges(context.Background(), review.Info{Namespace: "o", Project: "r", IID: 1})
+	if !errors.Is(err, auth.ErrPlatformLoginRequired) {
+		t.Fatalf("err = %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("requests = %d", requests)
+	}
+}
+
 func TestGitHubFetchErrorAndMissingFile(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/contents/") {
@@ -82,7 +110,9 @@ func TestGitHubFetchErrorAndMissingFile(t *testing.T) {
 		http.Error(w, "nope", http.StatusNotFound)
 	}))
 	defer srv.Close()
-	c := &GitHub{BaseURL: srv.URL, Token: "tok"}
+	c := &GitHub{BaseURL: srv.URL, Credentials: func(context.Context) (auth.PlatformCredential, error) {
+		return auth.PlatformCredential{Type: auth.PlatformPAT, Token: "tok"}, nil
+	}}
 	info := review.Info{Namespace: "owner", Project: "repo", IID: 9}
 	_, err := c.FetchChanges(context.Background(), info)
 	if err == nil || !strings.Contains(err.Error(), "failed to fetch PR") {

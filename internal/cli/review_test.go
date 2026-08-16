@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -63,11 +64,23 @@ func TestRunReviewJSONDryRunTwice(t *testing.T) {
 	srv := githubFixture(t, &posted)
 	defer srv.Close()
 
-	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("MR_REVIEWER_GITHUB_API", srv.URL)
-	t.Setenv("MR_REVIEWER_AUTH", filepath.Join(t.TempDir(), "auth.json"))
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	t.Setenv("MR_REVIEWER_AUTH", authPath)
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	st, err := auth.OpenStore(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := auth.NewPlatformTarget("github", "https://github.com", srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
 
 	argv := []string{"https://github.com/owner/repo/pull/1", "--provider", "echo", "--dry-run"}
 	var out1, out2, err1, err2 bytes.Buffer
@@ -111,10 +124,22 @@ func TestRunReviewGitHubEnterpriseUsesConfiguredAPI(t *testing.T) {
 	var posted bool
 	srv := githubFixture(t, &posted)
 	defer srv.Close()
-	t.Setenv("GITHUB_TOKEN", "test-token")
+	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("MR_REVIEWER_GITHUB_API", srv.URL)
 	t.Setenv("MR_REVIEWER_HOME", t.TempDir())
-	t.Setenv("MR_REVIEWER_AUTH", filepath.Join(t.TempDir(), "auth.json"))
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	t.Setenv("MR_REVIEWER_AUTH", authPath)
+	st, err := auth.OpenStore(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := auth.NewPlatformTarget("github", "https://ghe.example.com", srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
 	argv := []string{"https://ghe.example.com/owner/repo/pull/1", "--provider", "echo", "--dry-run"}
 	var out1, out2, err1, err2 bytes.Buffer
 	if code := RunReview(context.Background(), argv, &out1, &err1); code != 0 {

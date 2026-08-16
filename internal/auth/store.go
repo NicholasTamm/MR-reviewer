@@ -3,6 +3,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -32,9 +33,13 @@ type Credential struct {
 }
 
 type Store struct {
-	path  string
-	mu    sync.Mutex
-	creds map[string]Credential
+	path              string
+	mu                sync.Mutex
+	creds             map[string]Credential
+	platformCreds     map[string]PlatformCredential
+	refreshMu         sync.Mutex
+	refreshes         map[string]*platformRefreshCall
+	platformRefresher PlatformRefresher
 }
 
 // DefaultPath is ~/.mr-reviewer/auth.json.
@@ -54,7 +59,7 @@ func DefaultPath() string {
 }
 
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, creds: map[string]Credential{}}
+	s := &Store{path: path, creds: map[string]Credential{}, platformCreds: map[string]PlatformCredential{}, refreshes: map[string]*platformRefreshCall{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s, nil
@@ -62,8 +67,39 @@ func OpenStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &s.creds); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
+	}
+	if platforms, ok := raw["platforms"]; ok {
+		if err := json.Unmarshal(platforms, &s.platformCreds); err != nil {
+			return nil, err
+		}
+		delete(raw, "platforms")
+	}
+	for name, value := range raw {
+		var credential Credential
+		if err := json.Unmarshal(value, &credential); err != nil {
+			return nil, err
+		}
+		s.creds[name] = credential
+	}
+	// Legacy platform records were global. Migrate PATs only to their public-cloud target.
+	migrated := false
+	for _, platform := range []string{"gitlab", "github"} {
+		credential, ok := s.creds[platform]
+		if !ok || credential.Type != TypeAPIKey || credential.APIKey == "" {
+			continue
+		}
+		target, _ := PublicTarget(platform)
+		s.platformCreds[target.Key()] = PlatformCredential{Type: PlatformPAT, Token: credential.APIKey}
+		delete(s.creds, platform)
+		migrated = true
+	}
+	if migrated {
+		if err := s.save(context.Background(), s.creds, s.platformCreds); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
@@ -101,25 +137,35 @@ func (s *Store) getLocked(provider string) (Credential, bool) {
 func (s *Store) Set(provider string, c Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	next := cloneCredentials(s.creds)
 	if canonicalProvider(provider) == "google" {
-		s.creds["google"] = c
-		delete(s.creds, "gemini")
-		return s.saveLocked()
+		next["google"] = c
+		delete(next, "gemini")
+	} else {
+		next[provider] = c
 	}
-	s.creds[provider] = c
-	return s.saveLocked()
+	if err := s.save(context.Background(), next, s.platformCreds); err != nil {
+		return err
+	}
+	s.creds = next
+	return nil
 }
 
 func (s *Store) Delete(provider string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	next := cloneCredentials(s.creds)
 	if canonicalProvider(provider) == "google" {
-		delete(s.creds, "google")
-		delete(s.creds, "gemini")
-		return s.saveLocked()
+		delete(next, "google")
+		delete(next, "gemini")
+	} else {
+		delete(next, provider)
 	}
-	delete(s.creds, provider)
-	return s.saveLocked()
+	if err := s.save(context.Background(), next, s.platformCreds); err != nil {
+		return err
+	}
+	s.creds = next
+	return nil
 }
 
 func (s *Store) Providers() []string {
@@ -144,13 +190,74 @@ func (s *Store) Providers() []string {
 
 func (s *Store) Path() string { return s.path }
 
-func (s *Store) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+func (s *Store) save(ctx context.Context, creds map[string]Credential, platforms map[string]PlatformCredential) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(s.creds, "", "  ")
+	dir := filepath.Dir(s.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	payload := make(map[string]any, len(creds)+1)
+	for name, credential := range creds {
+		payload[name] = credential
+	}
+	if len(platforms) > 0 {
+		payload["platforms"] = platforms
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0o600)
+	tmp, err := os.CreateTemp(dir, ".auth-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, s.path); err != nil {
+		return err
+	}
+	if dirFile, err := os.Open(dir); err == nil {
+		defer dirFile.Close()
+		_ = dirFile.Sync()
+	}
+	return nil
+}
+
+func cloneCredentials(in map[string]Credential) map[string]Credential {
+	out := make(map[string]Credential, len(in))
+	for key, credential := range in {
+		out[key] = credential
+	}
+	return out
+}
+
+func clonePlatformCredentials(in map[string]PlatformCredential) map[string]PlatformCredential {
+	out := make(map[string]PlatformCredential, len(in))
+	for key, credential := range in {
+		out[key] = credential
+	}
+	return out
 }

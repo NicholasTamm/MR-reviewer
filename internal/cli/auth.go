@@ -129,7 +129,9 @@ func runAuthLogin(store *auth.Store, args []string, stdout io.Writer) error {
 	ctx := context.Background()
 
 	switch prov {
-	case "anthropic", "google", "kimi", "deepseek", "gitlab", "github":
+	case "gitlab", "github":
+		return loginPlatformPAT(store, prov, keyValue, stdout)
+	case "anthropic", "google", "kimi", "deepseek":
 		return loginAPIKey(store, prov, keyValue, stdout)
 	case "openai":
 		if useAPIKey {
@@ -200,6 +202,30 @@ func loginAPIKey(store *auth.Store, prov, keyValue string, stdout io.Writer) err
 		return err
 	}
 	fmt.Fprintf(stdout, "Stored %s API key in %s\n", prov, store.Path())
+	return nil
+}
+
+func loginPlatformPAT(store *auth.Store, prov, keyValue string, stdout io.Writer) error {
+	key := strings.TrimSpace(keyValue)
+	if key == "" {
+		var err error
+		key, err = promptSecret(stdout, loginAPIKeyPrompt(prov))
+		if err != nil {
+			return err
+		}
+		key = strings.TrimSpace(key)
+	}
+	if key == "" {
+		return fmt.Errorf("no key entered")
+	}
+	target, err := auth.PublicTarget(prov)
+	if err != nil {
+		return err
+	}
+	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: key}); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Stored %s personal access token in %s\n", prov, store.Path())
 	return nil
 }
 

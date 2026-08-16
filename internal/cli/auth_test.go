@@ -128,7 +128,7 @@ func TestRunAuthLoginGitLabAndGitHubAPIKeyResolves(t *testing.T) {
 	if code := RunAuth([]string{"login", "gitlab", "--api-key", "glpat-cli-token"}, &out, &errb); code != 0 {
 		t.Fatalf("gitlab login exit %d stderr=%s stdout=%s", code, errb.String(), out.String())
 	}
-	if !strings.Contains(out.String(), "Stored gitlab API key") {
+	if !strings.Contains(out.String(), "Stored gitlab personal access token") {
 		t.Fatalf("stdout = %q", out.String())
 	}
 	st, err := auth.OpenStore(path)
@@ -152,10 +152,6 @@ func TestRunAuthLoginGitLabAndGitHubAPIKeyResolves(t *testing.T) {
 	tok, err = auth.PlatformToken("github", st)
 	if err != nil || tok != "ghp-cli-token" {
 		t.Fatalf("PlatformToken github = %q err=%v", tok, err)
-	}
-	key, ok := auth.APIKey("github", st)
-	if !ok || key != "ghp-cli-token" {
-		t.Fatalf("APIKey github = %q ok=%v", key, ok)
 	}
 }
 
