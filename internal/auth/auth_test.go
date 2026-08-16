@@ -241,3 +241,20 @@ func TestFlowConfigShapes(t *testing.T) {
 		t.Errorf("XAIDeviceFlow = %+v", d)
 	}
 }
+
+func TestGitLabFlowRequiresExplicitClientID(t *testing.T) {
+	if _, err := GitLabFlow(""); err == nil || !strings.Contains(err.Error(), "GITLAB_OAUTH_CLIENT_ID") {
+		t.Fatalf("missing client ID error = %v", err)
+	}
+	flow, err := GitLabFlow("client-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.ClientID != "client-id" || flow.Scope != "api" || flow.RedirectHost != "127.0.0.1" || flow.RedirectPort != 8620 || flow.RedirectPath != "/oauth/callback" {
+		t.Fatalf("GitLabFlow = %+v", flow)
+	}
+	device, err := GitLabDeviceFlow("client-id")
+	if err != nil || device.ClientID != "client-id" || device.Scope != "api" || !strings.Contains(device.DeviceURL, "authorize_device") {
+		t.Fatalf("GitLabDeviceFlow = %+v err=%v", device, err)
+	}
+}

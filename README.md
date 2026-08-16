@@ -23,14 +23,27 @@ Requires Go 1.25+ (see `go.mod`).
 
 ### First-time setup
 
-1. **Platform token** — GitLab for the dashboard, plus GitHub if you review PRs:
-   ```bash
-   ./mr-reviewer auth login gitlab                 # hidden TTY prompt (or stdin)
-   ./mr-reviewer auth login github --api-key       # same, explicit
-   ./mr-reviewer auth login gitlab --api-key glpat-...   # non-interactive
-   ./mr-reviewer auth status
-   ```
-   Or export `GITLAB_TOKEN` / `GITHUB_TOKEN`. Env vars win over stored keys.
+1. **Platform access** — GitLab for the dashboard, plus GitHub if you review PRs:
+    ```bash
+    ./mr-reviewer auth login gitlab --client-id YOUR_APPLICATION_ID # browser PKCE
+    ./mr-reviewer auth login gitlab --device --client-id YOUR_APPLICATION_ID # headless
+    ./mr-reviewer auth login gitlab --api-key       # PAT fallback, hidden TTY prompt
+    ./mr-reviewer auth login github --api-key       # same, explicit
+    ./mr-reviewer auth login gitlab --api-key glpat-...   # non-interactive
+    ./mr-reviewer auth status
+    ```
+    GitLab OAuth is GitLab.com-only. Create your own application at
+    `https://gitlab.com/-/user_settings/applications`, configure exactly
+    `http://127.0.0.1:8620/oauth/callback` as the redirect URI, select the
+    `api` scope, and supply its **Application ID** with `--client-id` or
+    `GITLAB_OAUTH_CLIENT_ID`. Do not provide the application secret: the
+    browser flow uses PKCE and does not need or store it. The TUI reads
+    `GITLAB_OAUTH_CLIENT_ID` when you choose GitLab login. Device authorization
+    requires a GitLab instance with the documented device grant available;
+    use browser PKCE if GitLab rejects the device-code request.
+
+    Or export `GITLAB_TOKEN` / `GITHUB_TOKEN`. Environment PATs win over stored
+    credentials and remain restricted to GitLab.com / GitHub.com respectively.
 
 2. **Model provider** — same contract as strike: `anthropic`, `openai`, `xai`, `google` (`gemini` alias), `kimi`, `deepseek`, or `echo` (offline):
    ```bash
@@ -72,7 +85,7 @@ Mode **review first** (default) always shows the HITL list. **auto-post** posts 
 | Link / configure | `tab` fields · `←`/`→` provider · `enter`/type model · `space` toggle · `+/-` max · `enter` run · `esc` back |
 | Review (HITL) | `j`/`k` · `a` approve · `r` reject · `e` edit · `s` summary · `p` post · `esc` back |
 | Posted | `n` new · `q` quit |
-| Auth | `j`/`k` · `enter` login · `x` logout · `d` xAI device · `esc` back |
+| Auth | `j`/`k` · `enter` login · `k` GitLab PAT · `d` xAI/GitLab device · `x` logout · `esc` back |
 | Config | `tab`/`j`/`k` fields · `enter`/type edit · `s` save · `esc` back |
 | Anywhere | `ctrl+c` quit |
 

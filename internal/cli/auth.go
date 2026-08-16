@@ -18,7 +18,7 @@ import (
 const authUsage = `Manage provider credentials.
 
 Usage:
-  mr-reviewer auth login <anthropic|openai|xai|google|kimi|deepseek|gitlab|github> [--api-key [TOKEN]] [--device]
+  mr-reviewer auth login <anthropic|openai|xai|google|kimi|deepseek|gitlab|github> [--api-key [TOKEN]] [--device] [--client-id ID]
   mr-reviewer auth status
   mr-reviewer auth logout <provider>
 
@@ -30,7 +30,8 @@ Login methods:
   google      paste a Google AI Studio key (alias: gemini)
   kimi        paste a key
   deepseek    paste a key
-  gitlab      paste a GITLAB_TOKEN (Personal Access Token, api scope)
+  gitlab      browser OAuth with PKCE (requires your registered client ID),
+              --device for headless login, or --api-key for a PAT
   github      paste a GITHUB_TOKEN (PAT)
 
 --api-key with no value prompts (hidden on a TTY). --api-key TOKEN stores
@@ -39,7 +40,13 @@ the token without a prompt (useful in scripts).
 Env vars take precedence over stored credentials:
   ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY,
   GEMINI_API_KEY / GOOGLE_API_KEY, KIMI_API_KEY, DEEPSEEK_API_KEY,
-  GITLAB_TOKEN, GITHUB_TOKEN.
+   GITLAB_TOKEN, GITHUB_TOKEN. GitLab OAuth client ID: GITLAB_OAUTH_CLIENT_ID.
+
+GitLab OAuth setup: create your own application at
+https://gitlab.com/-/user_settings/applications. Set its redirect URI to
+http://127.0.0.1:8620/oauth/callback, select only the api scope, then provide
+its Application ID with --client-id or GITLAB_OAUTH_CLIENT_ID. Do not provide
+or store the application secret; GitLab PKCE does not require it.
 `
 
 // promptSecret is the strike-shaped secret reader. Tests replace it.
@@ -148,11 +155,23 @@ func runAuthLogin(store *auth.Store, args []string, stdout io.Writer) error {
 	prov := auth.CanonicalProvider(args[0])
 	useAPIKey, keyValue := parseAPIKeyFlag(args[1:])
 	useDevice := hasFlag(args[1:], "--device")
+	clientID := flagValue(args[1:], "--client-id")
 	ctx := context.Background()
 
 	switch prov {
-	case "gitlab", "github":
+	case "github":
 		return loginPlatformPAT(store, prov, keyValue, stdout)
+	case "gitlab":
+		if useAPIKey {
+			return loginPlatformPAT(store, prov, keyValue, stdout)
+		}
+		if clientID == "" {
+			clientID = auth.GitLabOAuthClientID()
+		}
+		if useDevice {
+			return loginGitLabDevice(ctx, store, clientID, stdout)
+		}
+		return loginGitLabOAuth(ctx, store, clientID, stdout)
 	case "anthropic", "google", "kimi", "deepseek":
 		return loginAPIKey(store, prov, keyValue, stdout)
 	case "openai":
@@ -192,6 +211,18 @@ func hasFlag(args []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func flagValue(args []string, name string) string {
+	for i, arg := range args {
+		if arg == name && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			return args[i+1]
+		}
+		if value, ok := strings.CutPrefix(arg, name+"="); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 func loginAPIKeyPrompt(prov string) string {
@@ -250,6 +281,50 @@ func loginPlatformPAT(store *auth.Store, prov, keyValue string, stdout io.Writer
 	fmt.Fprintf(stdout, "Stored %s personal access token in %s\n", prov, store.Path())
 	return nil
 }
+
+func loginGitLabOAuth(ctx context.Context, store *auth.Store, clientID string, stdout io.Writer) error {
+	flow, err := auth.GitLabFlow(clientID)
+	if err != nil {
+		return err
+	}
+	tokens, err := flow.Login(ctx)
+	if err != nil {
+		return err
+	}
+	target, _ := auth.PublicTarget("gitlab")
+	msg, err := auth.CompletePlatformLogin(ctx, store, target, clientID, tokens)
+	if err != nil {
+		return err
+	}
+	fprintln(stdout, msg)
+	return nil
+}
+
+func loginGitLabDevice(ctx context.Context, store *auth.Store, clientID string, stdout io.Writer) error {
+	flow, err := auth.GitLabDeviceFlow(clientID)
+	if err != nil {
+		return err
+	}
+	code, err := flow.RequestCode(ctx)
+	if err != nil {
+		return fmt.Errorf("GitLab device authorization unavailable; use browser PKCE login instead: %w", err)
+	}
+	fprintf(stdout, "Open %s on any device and enter code: %s\nWaiting for authorization…\n", code.VerificationURI, code.UserCode)
+	tokens, err := flow.Poll(ctx, code)
+	if err != nil {
+		return err
+	}
+	target, _ := auth.PublicTarget("gitlab")
+	msg, err := auth.CompletePlatformLogin(ctx, store, target, clientID, tokens)
+	if err != nil {
+		return err
+	}
+	fprintln(stdout, msg)
+	return nil
+}
+
+func fprintf(w io.Writer, format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
+func fprintln(w io.Writer, args ...any)               { _, _ = fmt.Fprintln(w, args...) }
 
 func loginOAuth(ctx context.Context, store *auth.Store, prov string, flow auth.FlowConfig, stdout io.Writer) error {
 	tokens, err := flow.Login(ctx)

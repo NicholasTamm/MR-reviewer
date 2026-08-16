@@ -75,6 +75,7 @@ type PlatformCredential struct {
 	Token     string                 `json:"token,omitempty"`
 	Refresh   string                 `json:"refresh,omitempty"`
 	ExpiresAt time.Time              `json:"expiresAt,omitempty"`
+	ClientID  string                 `json:"clientId,omitempty"`
 }
 
 var ErrPlatformLoginRequired = errors.New("platform credentials require re-login")

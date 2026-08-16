@@ -59,7 +59,7 @@ func DefaultPath() string {
 }
 
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, creds: map[string]Credential{}, platformCreds: map[string]PlatformCredential{}, refreshes: map[string]*platformRefreshCall{}}
+	s := &Store{path: path, creds: map[string]Credential{}, platformCreds: map[string]PlatformCredential{}, refreshes: map[string]*platformRefreshCall{}, platformRefresher: refreshPlatformOAuth}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s, nil
