@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -74,7 +75,9 @@ func TestGitLabFetchPostAndDashboard(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &GitLab{BaseURL: srv.URL, Token: "glpat"}
+	c := &GitLab{BaseURL: srv.URL, Credentials: func(context.Context) (auth.PlatformCredential, error) {
+		return auth.PlatformCredential{Type: auth.PlatformPAT, Token: "glpat"}, nil
+	}}
 	info := review.Info{Platform: "gitlab", Namespace: "group", Project: "project", IID: 7}
 	fr, err := c.FetchChanges(context.Background(), info)
 	if err != nil {
@@ -111,6 +114,30 @@ func TestGitLabFetchPostAndDashboard(t *testing.T) {
 	pm, err := c.ListProjectMergeRequests(context.Background(), 9)
 	if err != nil || pm.ProjectPath != "group/project" || len(pm.MergeRequests) != 1 {
 		t.Fatalf("%+v err=%v", pm, err)
+	}
+}
+
+func TestGitLabAuthenticationHeaders(t *testing.T) {
+	for name, credential := range map[string]auth.PlatformCredential{
+		"pat":   {Type: auth.PlatformPAT, Token: "glpat"},
+		"oauth": {Type: auth.PlatformOAuth, Token: "oauth"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if name == "pat" && (r.Header.Get("PRIVATE-TOKEN") != "glpat" || r.Header.Get("Authorization") != "") {
+					t.Errorf("headers = %v", r.Header)
+				}
+				if name == "oauth" && (r.Header.Get("Authorization") != "Bearer oauth" || r.Header.Get("PRIVATE-TOKEN") != "") {
+					t.Errorf("headers = %v", r.Header)
+				}
+				_, _ = w.Write([]byte("content"))
+			}))
+			defer srv.Close()
+			client := &GitLab{BaseURL: srv.URL, Credentials: func(context.Context) (auth.PlatformCredential, error) { return credential, nil }}
+			if _, ok, err := client.FetchFile(context.Background(), review.Info{Namespace: "g", Project: "p"}, "file", "main"); err != nil || !ok {
+				t.Fatalf("ok=%v err=%v", ok, err)
+			}
+		})
 	}
 }
 

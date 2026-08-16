@@ -120,16 +120,16 @@ func Save(s Settings) error {
 func (s Settings) PlatformFor(info review.Info, store *auth.Store) (review.Platform, error) {
 	switch info.Platform {
 	case "github":
-		tok, err := auth.PlatformToken("github", store)
+		origin := info.BaseURL
+		if origin == "" {
+			origin = "https://github.com"
+		}
+		target, err := auth.NewPlatformTarget("github", origin, s.GitHubAPI)
 		if err != nil {
 			return nil, err
 		}
-		return &platform.GitHub{BaseURL: s.GitHubAPI, Token: tok}, nil
+		return &platform.GitHub{BaseURL: target.APIBase, Credentials: auth.PlatformCredentialSource(target, store)}, nil
 	case "gitlab":
-		tok, err := auth.PlatformToken("gitlab", store)
-		if err != nil {
-			return nil, err
-		}
 		host := info.BaseURL
 		if host == "" {
 			host = s.GitLabURL
@@ -137,18 +137,22 @@ func (s Settings) PlatformFor(info review.Info, store *auth.Store) (review.Platf
 		if strings.HasPrefix(host, "http://") && !s.AllowInsecureGitLab {
 			return nil, fmt.Errorf("refusing to send GITLAB_TOKEN to an insecure HTTP GitLab URL; use HTTPS or set MR_REVIEWER_ALLOW_INSECURE_GITLAB=true")
 		}
-		return &platform.GitLab{BaseURL: host, Token: tok}, nil
+		target, err := auth.NewPlatformTarget("gitlab", host, strings.TrimRight(host, "/")+"/api/v4")
+		if err != nil {
+			return nil, err
+		}
+		return &platform.GitLab{BaseURL: target.Origin, Credentials: auth.PlatformCredentialSource(target, store)}, nil
 	default:
 		return nil, fmt.Errorf("unknown platform %q", info.Platform)
 	}
 }
 
 func (s Settings) GitLabBrowser(store *auth.Store) (*platform.GitLab, error) {
-	tok, err := auth.PlatformToken("gitlab", store)
+	target, err := auth.NewPlatformTarget("gitlab", s.GitLabURL, strings.TrimRight(s.GitLabURL, "/")+"/api/v4")
 	if err != nil {
 		return nil, err
 	}
-	return &platform.GitLab{BaseURL: s.GitLabURL, Token: tok}, nil
+	return &platform.GitLab{BaseURL: target.Origin, Credentials: auth.PlatformCredentialSource(target, store)}, nil
 }
 
 func (s Settings) NewProvider(name, model string, store *auth.Store) (review.Provider, error) {

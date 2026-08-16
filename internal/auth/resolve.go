@@ -133,8 +133,17 @@ func BearerSource(provider string, store *Store) func(ctx context.Context) (stri
 }
 
 func PlatformToken(name string, store *Store) (string, error) {
-	if key, ok := APIKey(name, store); ok {
-		return key, nil
+	target, err := PublicTarget(name)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("no %s token: set %s or run `mr-reviewer auth login %s`", name, envVars[name], name)
+	credential, err := ResolvePlatformCredential(context.Background(), target, store)
+	if err != nil {
+		return "", fmt.Errorf("no %s token: set %s or run `mr-reviewer auth login %s`", name, envVars[name], name)
+	}
+	return credential.Token, nil
+}
+
+func osPlatformToken(platform string) string {
+	return os.Getenv(envVars[platform])
 }

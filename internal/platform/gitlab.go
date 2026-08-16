@@ -12,16 +12,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
 // GitLab talks to the GitLab REST API (gitlab.com or self-hosted).
 type GitLab struct {
-	BaseURL   string
-	Token     string
-	HTTP      *http.Client
-	diffRefs  *diffRefs
-	diffFiles []review.DiffFile
+	BaseURL     string
+	Credentials func(context.Context) (auth.PlatformCredential, error)
+	HTTP        *http.Client
+	diffRefs    *diffRefs
+	diffFiles   []review.DiffFile
 }
 
 type diffRefs struct {
@@ -62,8 +63,8 @@ func (c *GitLab) do(ctx context.Context, method, path string, body any) (*http.R
 	if err != nil {
 		return nil, err
 	}
-	if c.Token != "" {
-		req.Header.Set("PRIVATE-TOKEN", c.Token)
+	if err := c.applyAuth(ctx, req); err != nil {
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
@@ -154,8 +155,8 @@ func (c *GitLab) FetchFile(ctx context.Context, info review.Info, path, ref stri
 	if err != nil {
 		return "", false, err
 	}
-	if c.Token != "" {
-		req.Header.Set("PRIVATE-TOKEN", c.Token)
+	if err := c.applyAuth(ctx, req); err != nil {
+		return "", false, err
 	}
 	resp, err := c.client().Do(req)
 	if err != nil {
@@ -173,6 +174,17 @@ func (c *GitLab) FetchFile(ctx context.Context, info review.Info, path, ref stri
 		return "", false, err
 	}
 	return string(b), true, nil
+}
+
+func (c *GitLab) applyAuth(ctx context.Context, req *http.Request) error {
+	if c.Credentials == nil {
+		return nil
+	}
+	credential, err := c.Credentials(ctx)
+	if err != nil {
+		return err
+	}
+	return auth.ApplyPlatformAuth(req.Header, "gitlab", credential)
 }
 
 // PostReview implements review.Platform.

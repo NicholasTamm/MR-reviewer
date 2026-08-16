@@ -121,7 +121,7 @@ func TestPlatformForInsecureGitLabAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	gl, ok := p.(*platform.GitLab)
-	if !ok || gl.BaseURL != "http://git.local" || gl.Token != "glpat-test" {
+	if !ok || gl.BaseURL != "http://git.local" || gl.Credentials == nil {
 		t.Fatalf("%T %+v", p, gl)
 	}
 }
@@ -140,7 +140,7 @@ func TestPlatformForGitHubUsesEnvTokenAndAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh, ok := p.(*platform.GitHub)
-	if !ok || gh.Token != "ghp-test" || gh.BaseURL != "https://ghe.example/api" {
+	if !ok || gh.Credentials == nil || gh.BaseURL != "https://ghe.example/api" {
 		t.Fatalf("%+v", gh)
 	}
 }
@@ -154,8 +154,8 @@ func TestPlatformForMissingToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.PlatformFor(review.Info{Platform: "github"}, st); err == nil {
-		t.Fatal("expected missing github token")
+	if _, err := s.PlatformFor(review.Info{Platform: "github"}, st); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := s.PlatformFor(review.Info{Platform: "unknown"}, st); err == nil || !strings.Contains(err.Error(), "unknown platform") {
 		t.Fatalf("err = %v", err)
@@ -170,15 +170,16 @@ func TestPlatformForUsesStoreToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Set("github", auth.Credential{Type: auth.TypeAPIKey, APIKey: "stored-gh"}); err != nil {
+	target, _ := auth.PublicTarget("github")
+	if err := st.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "stored-gh"}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.PlatformFor(review.Info{Platform: "github"}, st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.(*platform.GitHub).Token != "stored-gh" {
-		t.Fatalf("token = %q", p.(*platform.GitHub).Token)
+	if got, err := p.(*platform.GitHub).Credentials(context.Background()); err != nil || got.Token != "stored-gh" {
+		t.Fatalf("credential = %+v err=%v", got, err)
 	}
 }
 
@@ -190,13 +191,13 @@ func TestGitLabBrowserRequiresToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GitLabBrowser(st); err == nil {
-		t.Fatal("expected missing gitlab token")
+	if _, err := s.GitLabBrowser(st); err != nil {
+		t.Fatal(err)
 	}
 	t.Setenv("GITLAB_TOKEN", "glpat")
 	s = Load()
 	gl, err := s.GitLabBrowser(st)
-	if err != nil || gl.Token != "glpat" || gl.BaseURL != s.GitLabURL {
+	if err != nil || gl.Credentials == nil || gl.BaseURL != s.GitLabURL {
 		t.Fatalf("gl=%+v err=%v", gl, err)
 	}
 }
