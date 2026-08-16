@@ -155,6 +155,29 @@ func TestRunAuthLoginGitLabAndGitHubAPIKeyResolves(t *testing.T) {
 	}
 }
 
+func TestRunAuthPlatformStatusAndLogoutUseScopedCredentials(t *testing.T) {
+	_ = withAuthStore(t)
+	var out, errb bytes.Buffer
+	if code := RunAuth([]string{"login", "github", "--api-key", "ghp-cli-token"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	out.Reset()
+	if code := RunAuth([]string{"status"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "github     personal access token stored") {
+		t.Fatalf("status exit=%d output=%q errors=%q", code, out.String(), errb.String())
+	}
+	if code := RunAuth([]string{"logout", "github"}, &out, &errb); code != 0 {
+		t.Fatal(errb.String())
+	}
+	st, err := auth.OpenStore(auth.DefaultPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := auth.PublicTarget("github")
+	if _, ok := st.GetPlatform(target); ok {
+		t.Fatal("GitHub platform credential remains after logout")
+	}
+}
+
 func TestRunAuthLoginGitLabStdinPrompt(t *testing.T) {
 	path := withAuthStore(t)
 	r, w, err := os.Pipe()

@@ -69,7 +69,18 @@ func RunAuth(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		prov := auth.CanonicalProvider(args[1])
-		if err := store.Delete(prov); err != nil {
+		var err error
+		if prov == "gitlab" || prov == "github" {
+			target, targetErr := auth.PublicTarget(prov)
+			if targetErr != nil {
+				err = targetErr
+			} else {
+				err = store.DeletePlatform(context.Background(), target)
+			}
+		} else {
+			err = store.Delete(prov)
+		}
+		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -89,6 +100,17 @@ func runAuthStatus(store *auth.Store, stdout io.Writer) {
 		status := "not logged in"
 		if key, ok := envKey(name); ok {
 			status = "using " + key + " from environment"
+		} else if name == "gitlab" || name == "github" {
+			target, _ := auth.PublicTarget(name)
+			if cred, ok := store.GetPlatform(target); ok {
+				if cred.Type == auth.PlatformPAT {
+					status = "personal access token stored"
+				} else if !cred.ExpiresAt.IsZero() && time.Now().After(cred.ExpiresAt) {
+					status = "OAuth (access token expired; will refresh on use)"
+				} else {
+					status = "OAuth"
+				}
+			}
 		} else if cred, ok := store.Get(name); ok {
 			switch {
 			case cred.Type == auth.TypeAPIKey:

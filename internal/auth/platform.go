@@ -120,6 +120,25 @@ func (s *Store) SetPlatform(ctx context.Context, target PlatformTarget, credenti
 	return nil
 }
 
+func (s *Store) DeletePlatform(ctx context.Context, target PlatformTarget) error {
+	normalized, err := NewPlatformTarget(target.Platform, target.Origin, target.APIBase)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := clonePlatformCredentials(s.platformCreds)
+	delete(next, normalized.Key())
+	if err := s.save(ctx, s.creds, next); err != nil {
+		return err
+	}
+	s.platformCreds = next
+	return nil
+}
+
 func PlatformCredentialSource(target PlatformTarget, store *Store) func(context.Context) (PlatformCredential, error) {
 	return func(ctx context.Context) (PlatformCredential, error) {
 		return ResolvePlatformCredential(ctx, target, store)
