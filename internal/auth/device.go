@@ -16,6 +16,7 @@ type DeviceConfig struct {
 	TokenURL  string
 	ClientID  string
 	Scope     string
+	wait      func(context.Context, time.Duration) error
 }
 
 type DeviceCode struct {
@@ -64,12 +65,21 @@ func (d DeviceConfig) Poll(ctx context.Context, code *DeviceCode) (*Tokens, erro
 		expiresIn = 300
 	}
 	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	wait := d.wait
+	if wait == nil {
+		wait = func(ctx context.Context, interval time.Duration) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(interval):
+				return nil
+			}
+		}
+	}
 
 	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(interval):
+		if err := wait(ctx, interval); err != nil {
+			return nil, err
 		}
 		resp, err := postForm(ctx, d.TokenURL, url.Values{
 			"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
@@ -88,8 +98,16 @@ func (d DeviceConfig) Poll(ctx context.Context, code *DeviceCode) (*Tokens, erro
 				continue
 			case "access_denied", "authorization_denied":
 				return nil, fmt.Errorf("device authorization was denied")
-			case "expired_token":
-				return nil, fmt.Errorf("device code expired — run login again")
+			case "expired_token", "token_expired":
+				return nil, fmt.Errorf("device code expired; run login again")
+			case "unsupported_grant_type":
+				return nil, fmt.Errorf("device authorization failed: unsupported grant type")
+			case "incorrect_client_credentials":
+				return nil, fmt.Errorf("device authorization failed: invalid OAuth client ID")
+			case "incorrect_device_code":
+				return nil, fmt.Errorf("device authorization failed: invalid device code")
+			case "device_flow_disabled":
+				return nil, fmt.Errorf("device authorization is disabled for this OAuth app")
 			}
 		}
 		return nil, err

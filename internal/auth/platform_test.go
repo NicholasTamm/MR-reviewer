@@ -190,3 +190,47 @@ func TestGitLabOAuthRefreshUsesOnlyItsStoredClientID(t *testing.T) {
 		t.Fatalf("credential=%+v target=%+v supplied=%+v err=%v", credential, gotTarget, gotCredential, err)
 	}
 }
+
+func TestNonExpiringPlatformOAuthDoesNotAttemptRefresh(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := PublicTarget("github")
+	if err := store.SetPlatform(context.Background(), target, PlatformCredential{Type: PlatformOAuth, Token: "long-lived", ClientID: "client-id"}); err != nil {
+		t.Fatal(err)
+	}
+	store.SetPlatformRefresher(func(context.Context, PlatformTarget, PlatformCredential) (PlatformCredential, error) {
+		t.Fatal("non-expiring OAuth credentials must not refresh")
+		return PlatformCredential{}, nil
+	})
+	credential, err := ResolvePlatformCredential(context.Background(), target, store)
+	if err != nil || credential.Token != "long-lived" {
+		t.Fatalf("credential=%+v err=%v", credential, err)
+	}
+}
+
+func TestGitHubOAuthLoginIsPublicTargetBoundAndRequiresScopeAndClientID(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _ := PublicTarget("github")
+	if _, err := CompletePlatformLogin(context.Background(), store, public, "", &Tokens{Access: "access", Scope: "repo"}); err == nil || !strings.Contains(err.Error(), "client ID") {
+		t.Fatalf("missing client ID error = %v", err)
+	}
+	if _, err := CompletePlatformLogin(context.Background(), store, public, "client-id", &Tokens{Access: "access", Scope: "public_repo"}); err == nil || !strings.Contains(err.Error(), "repo scope") {
+		t.Fatalf("scope error = %v", err)
+	}
+	enterprise, _ := NewPlatformTarget("github", "https://ghe.example", "https://ghe.example/api/v3")
+	if _, err := CompletePlatformLogin(context.Background(), store, enterprise, "client-id", &Tokens{Access: "access", Scope: "repo"}); err == nil || !strings.Contains(err.Error(), "GitHub.com only") {
+		t.Fatalf("enterprise error = %v", err)
+	}
+	if _, err := CompletePlatformLogin(context.Background(), store, public, "client-id", &Tokens{Access: "access", Scope: "repo"}); err != nil {
+		t.Fatal(err)
+	}
+	credential, ok := store.GetPlatform(public)
+	if !ok || credential.ClientID != "client-id" || credential.Type != PlatformOAuth {
+		t.Fatalf("credential = %+v ok=%v", credential, ok)
+	}
+}

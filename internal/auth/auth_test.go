@@ -258,3 +258,25 @@ func TestGitLabFlowRequiresExplicitClientID(t *testing.T) {
 		t.Fatalf("GitLabDeviceFlow = %+v err=%v", device, err)
 	}
 }
+
+func TestGitHubDeviceFlowRequiresExplicitClientIDAndRepoScope(t *testing.T) {
+	if _, err := GitHubDeviceFlow(""); err == nil || !strings.Contains(err.Error(), "GITHUB_OAUTH_CLIENT_ID") || !strings.Contains(err.Error(), "Device Flow") {
+		t.Fatalf("missing client ID error = %v", err)
+	}
+	flow, err := GitHubDeviceFlow(" client-id ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flow.ClientID != "client-id" || flow.Scope != "repo" || flow.DeviceURL != "https://github.com/login/device/code" || flow.TokenURL != "https://github.com/login/oauth/access_token" {
+		t.Fatalf("GitHubDeviceFlow = %+v", flow)
+	}
+}
+
+func TestValidateGitHubScopes(t *testing.T) {
+	if err := ValidateGitHubScopes(&Tokens{Scope: "repo,gist"}); err != nil {
+		t.Fatalf("repo scope rejected: %v", err)
+	}
+	if err := ValidateGitHubScopes(&Tokens{Scope: "public_repo"}); err == nil || !strings.Contains(err.Error(), "repo scope") {
+		t.Fatalf("unexpected validation error = %v", err)
+	}
+}

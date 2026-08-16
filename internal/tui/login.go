@@ -34,6 +34,9 @@ func PersistLogin(ctx context.Context, store *auth.Store, provider, method strin
 		if tokens == nil || tokens.Access == "" {
 			return "", fmt.Errorf("missing oauth tokens for %s", provider)
 		}
+		if provider == "github" {
+			return "", fmt.Errorf("GitHub OAuth credentials require a client ID")
+		}
 		return auth.CompleteLogin(ctx, store, provider, tokens)
 	default:
 		return "", fmt.Errorf("unknown login method %q", method)

@@ -28,7 +28,8 @@ Requires Go 1.25+ (see `go.mod`).
     ./mr-reviewer auth login gitlab --client-id YOUR_APPLICATION_ID # browser PKCE
     ./mr-reviewer auth login gitlab --device --client-id YOUR_APPLICATION_ID # headless
     ./mr-reviewer auth login gitlab --api-key       # PAT fallback, hidden TTY prompt
-    ./mr-reviewer auth login github --api-key       # same, explicit
+    ./mr-reviewer auth login github --client-id YOUR_CLIENT_ID # device OAuth
+    ./mr-reviewer auth login github --api-key       # PAT fallback
     ./mr-reviewer auth login gitlab --api-key glpat-...   # non-interactive
     ./mr-reviewer auth status
     ```
@@ -41,6 +42,16 @@ Requires Go 1.25+ (see `go.mod`).
     `GITLAB_OAUTH_CLIENT_ID` when you choose GitLab login. Device authorization
     requires a GitLab instance with the documented device grant available;
     use browser PKCE if GitLab rejects the device-code request.
+
+    GitHub OAuth is GitHub.com-only. Register your own OAuth App at
+    `https://github.com/settings/developers`, enable **Device Flow**, and pass
+    its public **Client ID** with `--client-id` or `GITHUB_OAUTH_CLIENT_ID`.
+    The device flow requests only GitHub's classic `repo` scope, which is the
+    OAuth App scope required to review private pull requests and post review
+    comments. Do not provide or store the app client secret. GitHub may return
+    an expiring access/refresh-token pair when that optional OAuth App feature
+    is enabled; MR Reviewer refreshes only such device-flow credentials using
+    their stored client ID. GitHub Enterprise Server login is not supported.
 
     Or export `GITLAB_TOKEN` / `GITHUB_TOKEN`. Environment PATs win over stored
     credentials and remain restricted to GitLab.com / GitHub.com respectively.
@@ -85,7 +96,7 @@ Mode **review first** (default) always shows the HITL list. **auto-post** posts 
 | Link / configure | `tab` fields · `←`/`→` provider · `enter`/type model · `space` toggle · `+/-` max · `enter` run · `esc` back |
 | Review (HITL) | `j`/`k` · `a` approve · `r` reject · `e` edit · `s` summary · `p` post · `esc` back |
 | Posted | `n` new · `q` quit |
-| Auth | `j`/`k` · `enter` login · `k` GitLab PAT · `d` xAI/GitLab device · `x` logout · `esc` back |
+| Auth | `j`/`k` · `enter` login · `k` platform PAT · `d` xAI/GitLab/GitHub device · `x` logout · `esc` back |
 | Config | `tab`/`j`/`k` fields · `enter`/type edit · `s` save · `esc` back |
 | Anywhere | `ctrl+c` quit |
 

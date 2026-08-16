@@ -104,3 +104,49 @@ func TestDevicePollContextCancel(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestDevicePollBacksOffAndHandlesDocumentedTerminalErrors(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch requests.Add(1) {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+		case 2:
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "slow_down"})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "access", "scope": "repo"})
+		}
+	}))
+	defer srv.Close()
+	var waits []time.Duration
+	flow := DeviceConfig{TokenURL: srv.URL, ClientID: "cid", wait: func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		return nil
+	}}
+	tokens, err := flow.Poll(context.Background(), &DeviceCode{DeviceCode: "dc", Interval: 5, ExpiresIn: 60})
+	if err != nil || tokens.Access != "access" || tokens.Scope != "repo" {
+		t.Fatalf("tokens=%+v err=%v", tokens, err)
+	}
+	if len(waits) != 3 || waits[0] != 5*time.Second || waits[1] != 5*time.Second || waits[2] != 10*time.Second {
+		t.Fatalf("waits = %v", waits)
+	}
+
+	for code, want := range map[string]string{
+		"expired_token":                "expired",
+		"unsupported_grant_type":       "unsupported grant type",
+		"incorrect_client_credentials": "invalid OAuth client ID",
+		"incorrect_device_code":        "invalid device code",
+		"device_flow_disabled":         "disabled",
+	} {
+		t.Run(code, func(t *testing.T) {
+			terminal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
+			}))
+			defer terminal.Close()
+			_, err := (DeviceConfig{TokenURL: terminal.URL, ClientID: "cid", wait: func(context.Context, time.Duration) error { return nil }}).Poll(context.Background(), &DeviceCode{DeviceCode: "dc", ExpiresIn: 60})
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}

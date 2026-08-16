@@ -20,6 +20,7 @@ func withAuthStore(t *testing.T) string {
 		"GEMINI_API_KEY", "GOOGLE_API_KEY", "KIMI_API_KEY", "DEEPSEEK_API_KEY",
 		"GITLAB_TOKEN", "GITHUB_TOKEN",
 		"GITLAB_OAUTH_CLIENT_ID",
+		"GITHUB_OAUTH_CLIENT_ID",
 	} {
 		t.Setenv(k, "")
 	}
@@ -163,6 +164,17 @@ func TestRunAuthGitLabOAuthRequiresRegisteredClientID(t *testing.T) {
 		t.Fatal("GitLab OAuth login without a client ID should fail")
 	}
 	if !strings.Contains(errb.String(), "GITLAB_OAUTH_CLIENT_ID") || !strings.Contains(errb.String(), "user_settings/applications") {
+		t.Fatalf("error = %q", errb.String())
+	}
+}
+
+func TestRunAuthGitHubOAuthRequiresRegisteredClientID(t *testing.T) {
+	withAuthStore(t)
+	var out, errb bytes.Buffer
+	if code := RunAuth([]string{"login", "github"}, &out, &errb); code == 0 {
+		t.Fatal("GitHub OAuth login without a client ID should fail")
+	}
+	if !strings.Contains(errb.String(), "GITHUB_OAUTH_CLIENT_ID") || !strings.Contains(errb.String(), "Device Flow") {
 		t.Fatalf("error = %q", errb.String())
 	}
 }

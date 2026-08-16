@@ -32,6 +32,7 @@ type Tokens struct {
 	Access    string
 	Refresh   string
 	IDToken   string
+	Scope     string
 	ExpiresAt time.Time
 }
 
@@ -40,6 +41,7 @@ type tokenResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	IDToken      string `json:"id_token"`
 	ExpiresIn    int    `json:"expires_in"`
+	Scope        string `json:"scope"`
 	Error        string `json:"error"`
 	ErrorDesc    string `json:"error_description"`
 }
@@ -49,16 +51,16 @@ func (r tokenResponse) toTokens(fallbackRefresh string) *Tokens {
 	if refresh == "" {
 		refresh = fallbackRefresh
 	}
-	expiresIn := r.ExpiresIn
-	if expiresIn <= 0 {
-		expiresIn = 3600
+	tokens := &Tokens{
+		Access:  r.AccessToken,
+		Refresh: refresh,
+		IDToken: r.IDToken,
+		Scope:   r.Scope,
 	}
-	return &Tokens{
-		Access:    r.AccessToken,
-		Refresh:   refresh,
-		IDToken:   r.IDToken,
-		ExpiresAt: time.Now().Add(time.Duration(expiresIn) * time.Second),
+	if r.ExpiresIn > 0 {
+		tokens.ExpiresAt = time.Now().Add(time.Duration(r.ExpiresIn) * time.Second)
 	}
+	return tokens
 }
 
 func (f FlowConfig) redirectURI() string {
