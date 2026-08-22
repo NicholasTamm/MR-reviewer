@@ -319,6 +319,9 @@ func (c *GitLab) ListVisibleProjects(ctx context.Context, search string) ([]revi
 		if err != nil {
 			return nil, err
 		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, catalogError("GitLab", resp)
+		}
 		var batch []struct {
 			ID                int    `json:"id"`
 			PathWithNamespace string `json:"path_with_namespace"`
@@ -342,6 +345,55 @@ func (c *GitLab) ListVisibleProjects(ctx context.Context, search string) ([]revi
 			continue
 		}
 		out = append(out, review.ProjectSummary{ProjectID: p.ID, ProjectPath: p.PathWithNamespace, WebURL: p.WebURL})
+	}
+	return out, nil
+}
+
+// ListProjects implements Catalog.
+func (c *GitLab) ListProjects(ctx context.Context, search string) ([]review.Project, error) {
+	projects, err := c.ListVisibleProjects(ctx, search)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]review.Project, 0, len(projects))
+	for _, project := range projects {
+		out = append(out, review.Project{
+			Platform: "gitlab",
+			ID:       strconv.Itoa(project.ProjectID),
+			Path:     project.ProjectPath,
+			WebURL:   project.WebURL,
+		})
+	}
+	return out, nil
+}
+
+// ListProjectReviews implements Catalog and only requests reviews for project.
+func (c *GitLab) ListProjectReviews(ctx context.Context, project review.Project, search string) ([]review.ReviewSummary, error) {
+	projectID, err := strconv.Atoi(project.ID)
+	if err != nil || projectID <= 0 {
+		return nil, fmt.Errorf("gitlab project ID must be a positive integer")
+	}
+	var out []review.ReviewSummary
+	for page := 1; page <= maxCatalogPages; page++ {
+		resp, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/projects/%d/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=%d&page=%d", projectID, catalogPageSize, page), nil)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, catalogError("GitLab", resp)
+		}
+		var batch []gitlabMR
+		if err := c.decodeAll(resp, &batch); err != nil {
+			return nil, fmt.Errorf("gitlab project MRs: %w", err)
+		}
+		for _, mr := range batch {
+			if matchesCatalogSearch(search, mr.Title) {
+				out = append(out, review.ReviewSummary{Project: project, Number: mr.IID, Title: mr.Title, Author: mr.Author.Name, SourceBranch: mr.SourceBranch, TargetBranch: mr.TargetBranch, UpdatedAt: mr.UpdatedAt, WebURL: mr.WebURL, Draft: mr.Draft})
+			}
+		}
+		if len(batch) < catalogPageSize {
+			break
+		}
 	}
 	return out, nil
 }
@@ -417,3 +469,5 @@ type Browser interface {
 	ListVisibleProjects(ctx context.Context, search string) ([]review.ProjectSummary, error)
 	ListProjectMergeRequests(ctx context.Context, projectID int) (review.ProjectMergeRequests, error)
 }
+
+var _ Catalog = (*GitLab)(nil)

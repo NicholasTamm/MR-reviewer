@@ -79,6 +79,94 @@ func (c *GitHub) applyAuth(ctx context.Context, req *http.Request) error {
 	return auth.ApplyPlatformAuth(req.Header, "github", credential)
 }
 
+// ListProjects implements Catalog.
+func (c *GitHub) ListProjects(ctx context.Context, search string) ([]review.Project, error) {
+	var out []review.Project
+	for page := 1; page <= maxCatalogPages; page++ {
+		resp, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/user/repos?affiliation=owner%%2Ccollaborator%%2Corganization_member&sort=full_name&direction=asc&per_page=%d&page=%d", catalogPageSize, page), nil, "")
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, catalogError("GitHub", resp)
+		}
+		var batch []githubRepository
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("github list repositories: %w", err)
+		}
+		resp.Body.Close()
+		for _, repository := range batch {
+			if matchesCatalogSearch(search, repository.FullName, repository.Name) {
+				out = append(out, review.Project{Platform: "github", ID: repository.FullName, Path: repository.FullName, WebURL: repository.HTMLURL})
+			}
+		}
+		if len(batch) < catalogPageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ListProjectReviews implements Catalog and only requests pull requests for project.
+func (c *GitHub) ListProjectReviews(ctx context.Context, project review.Project, search string) ([]review.ReviewSummary, error) {
+	owner, repository, ok := strings.Cut(project.ID, "/")
+	if !ok || owner == "" || repository == "" || strings.Contains(repository, "/") {
+		return nil, fmt.Errorf("github project ID must be owner/repository")
+	}
+	path := "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repository) + "/pulls"
+	var out []review.ReviewSummary
+	for page := 1; page <= maxCatalogPages; page++ {
+		resp, err := c.do(ctx, http.MethodGet, fmt.Sprintf("%s?state=open&sort=updated&direction=desc&per_page=%d&page=%d", path, catalogPageSize, page), nil, "")
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			return nil, catalogError("GitHub", resp)
+		}
+		var batch []githubPullRequest
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("github list pull requests: %w", err)
+		}
+		resp.Body.Close()
+		for _, pull := range batch {
+			if matchesCatalogSearch(search, pull.Title) {
+				out = append(out, review.ReviewSummary{Project: project, Number: pull.Number, Title: pull.Title, Author: pull.User.Login, SourceBranch: pull.Head.Ref, TargetBranch: pull.Base.Ref, UpdatedAt: pull.UpdatedAt, WebURL: pull.HTMLURL, Draft: pull.Draft})
+			}
+		}
+		if len(batch) < catalogPageSize {
+			break
+		}
+	}
+	return out, nil
+}
+
+type githubRepository struct {
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	HTMLURL  string `json:"html_url"`
+}
+
+type githubPullRequest struct {
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	UpdatedAt string `json:"updated_at"`
+	HTMLURL   string `json:"html_url"`
+	Draft     bool   `json:"draft"`
+	User      struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	Head struct {
+		Ref string `json:"ref"`
+	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
+}
+
+var _ Catalog = (*GitHub)(nil)
+
 // FetchChanges implements review.Platform.
 func (c *GitHub) FetchChanges(ctx context.Context, info review.Info) (review.FetchResult, error) {
 	owner, repo, n := info.Namespace, info.Project, info.IID
