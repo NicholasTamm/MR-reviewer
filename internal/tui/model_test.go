@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/config"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
@@ -224,6 +225,57 @@ func TestAuthViewLoginOutcome(t *testing.T) {
 	m = drain(t, m, cmd)
 	if !strings.Contains(m.Status(), "Logged in") {
 		t.Fatalf("status = %q", m.Status())
+	}
+}
+
+func TestDeviceAuthorizationProgressIsBlockingAndProminent(t *testing.T) {
+	m := testModel(t)
+	m = drain(t, m, m.Init())
+	m, _ = applyKey(m, key('a'))
+	m.authProv = "github"
+	m.authMethod = "device"
+	m.authAttempt = 1
+	m, _ = applyUpdate(m, deviceCodeMsg{
+		code:     &auth.DeviceCode{UserCode: "ABCD-1234", VerificationURI: "https://github.com/login/device"},
+		provider: "github",
+		attempt:  1,
+	})
+	if m.ViewName() != ViewAuth {
+		t.Fatalf("pending authorization left auth view: %s", m.ViewName())
+	}
+	view := m.render()
+	for _, want := range []string{"GITHUB authorization in progress", "https://github.com/login/device", "ABCD-1234", "Waiting for authorization", "c/esc cancel"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("authorization view missing %q:\n%s", want, view)
+		}
+	}
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	if m.ViewName() != ViewDashboard {
+		t.Fatalf("cancel view = %s, want dashboard", m.ViewName())
+	}
+}
+
+func TestAuthorizationFailuresStayOnAuthViewAndOfferRetry(t *testing.T) {
+	for _, err := range []error{
+		errors.New("device authorization was denied"),
+		errors.New("device authorization timed out"),
+		errors.New("network unreachable"),
+	} {
+		t.Run(err.Error(), func(t *testing.T) {
+			m := testModel(t)
+			m = drain(t, m, m.Init())
+			m, _ = applyKey(m, key('a'))
+			m.authProv = "github"
+			m.authMethod = "device"
+			m.authAttempt = 1
+			m, _ = applyUpdate(m, authDoneMsg{err: err, attempt: 1})
+			if m.ViewName() != ViewAuth || !m.authFailed {
+				t.Fatalf("failure must remain in auth view: view=%s failed=%v", m.ViewName(), m.authFailed)
+			}
+			if view := m.render(); !strings.Contains(view, "r retry") || !strings.Contains(view, err.Error()) {
+				t.Fatalf("failure view =\n%s", view)
+			}
+		})
 	}
 }
 

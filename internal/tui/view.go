@@ -49,7 +49,7 @@ func (m Model) render() string {
 	case ViewError:
 		b.WriteString(errStyle.Render("  "+m.err) + "\n\n  enter back\n")
 	}
-	if m.status != "" && m.view != ViewReviewing && m.view != ViewError {
+	if m.status != "" && m.view != ViewReviewing && m.view != ViewError && !(m.view == ViewAuth && (m.authCancel != nil || m.authFailed)) {
 		b.WriteString("\n")
 		b.WriteString(mutedStyle.Render("  " + m.status))
 		b.WriteString("\n")
@@ -185,6 +185,31 @@ func (m Model) viewConfirm() string {
 
 func (m Model) viewAuth() string {
 	var b strings.Builder
+	if m.authCancel != nil || m.authFailed {
+		provider := strings.ToUpper(m.authProv)
+		if m.authFailed {
+			b.WriteString(errStyle.Render("  "+provider+" authorization failed") + "\n\n")
+			b.WriteString("  " + m.status + "\n\n")
+			b.WriteString(mutedStyle.Render("  r retry  esc return") + "\n")
+			return b.String()
+		}
+		b.WriteString(titleStyle.Render("  "+provider+" authorization in progress") + "\n\n")
+		if m.authCode != nil {
+			uri := m.authCode.VerificationURIComplete
+			if uri == "" {
+				uri = m.authCode.VerificationURI
+			}
+			b.WriteString("  1. Open this URL in your browser:\n  " + uri + "\n\n")
+			b.WriteString("  2. Enter this code:\n  " + selStyle.Render(" "+m.authCode.UserCode+" ") + "\n\n")
+		} else if m.pending != nil {
+			b.WriteString("  Complete authorization in your browser:\n  " + m.pending.URL + "\n\n")
+			if m.input == inputOAuthPaste {
+				b.WriteString("  Paste the callback URL: " + m.editBuf + "█\n\n")
+			}
+		}
+		b.WriteString(mutedStyle.Render("  "+m.status+"  c/esc cancel") + "\n")
+		return b.String()
+	}
 	for i, name := range m.authList {
 		desc := "none"
 		if m.store != nil {
@@ -202,12 +227,6 @@ func (m Model) viewAuth() string {
 	}
 	if m.input == inputAPIKey {
 		b.WriteString("\n  key: " + strings.Repeat("•", len(m.editBuf)) + "█\n")
-	}
-	if m.input == inputOAuthPaste {
-		b.WriteString("\n  paste callback: " + m.editBuf + "█\n")
-	}
-	if m.pending != nil && m.pending.URL != "" {
-		b.WriteString("\n  " + mutedStyle.Render(m.pending.URL) + "\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("  enter login  k platform PAT  d device (xAI/GitLab/GitHub)  x logout  esc back"))

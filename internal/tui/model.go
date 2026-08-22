@@ -124,10 +124,16 @@ type Model struct {
 	reviewing bool
 
 	// auth
-	authList   []string
-	authCursor int
-	pending    *auth.PendingLogin
-	authProv   string
+	authList    []string
+	authCursor  int
+	pending     *auth.PendingLogin
+	authProv    string
+	authMethod  string
+	authCode    *auth.DeviceCode
+	authCtx     context.Context
+	authCancel  context.CancelFunc
+	authAttempt int
+	authFailed  bool
 
 	// injectable for tests / wiring
 	loadDash   func(search string) ([]review.ProjectMergeRequests, error)
@@ -170,12 +176,14 @@ type postDoneMsg struct {
 type authDoneMsg struct {
 	message string
 	err     error
+	attempt int
 }
 
 type deviceCodeMsg struct {
 	code     *auth.DeviceCode
 	cfg      auth.DeviceConfig
 	provider string
+	attempt  int
 }
 
 type Deps struct {
@@ -330,15 +338,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.view = ViewConfirm
 		return m, nil
 	case deviceCodeMsg:
-		m.status = devicePrompt(msg.code)
+		if msg.attempt != m.authAttempt {
+			return m, nil
+		}
+		m.authCode = msg.code
+		m.authFailed = false
+		m.status = "Waiting for authorization... (code " + msg.code.UserCode + ")"
+		if m.authCtx == nil {
+			m.authCtx, m.authCancel = context.WithCancel(context.Background())
+		}
+		ctx := m.authCtx
 		store := m.store
 		cfg := msg.cfg
 		code := msg.code
 		return m, func() tea.Msg {
-			ctx := context.Background()
 			tok, err := cfg.Poll(ctx, code)
 			if err != nil {
-				return authDoneMsg{err: err}
+				return authDoneMsg{err: err, attempt: msg.attempt}
 			}
 			var out string
 			if msg.provider == "gitlab" || msg.provider == "github" {
@@ -347,15 +363,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				out, err = PersistLogin(ctx, store, "xai", "device", tok, "")
 			}
-			return authDoneMsg{message: out, err: err}
+			return authDoneMsg{message: out, err: err, attempt: msg.attempt}
 		}
 	case authDoneMsg:
+		if msg.attempt != 0 && msg.attempt != m.authAttempt {
+			return m, nil
+		}
+		m.authCancel = nil
+		m.authCtx = nil
 		if msg.err != nil {
+			m.authFailed = true
 			m.status = msg.err.Error()
 			return m, nil
 		}
 		m.status = msg.message
 		m.pending = nil
+		m.authCode = nil
+		m.authFailed = false
 		m.input = inputNone
 		return m, nil
 	case tea.KeyPressMsg:
@@ -689,6 +713,34 @@ func (m Model) keysConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.authCancel != nil {
+		switch {
+		case msg.Code == tea.KeyEsc || keyText(msg) == "c":
+			m.authCancel()
+			m.authCancel = nil
+			m.authCtx = nil
+			m.authAttempt++ // Ignore the canceled command's eventual result.
+			m.pending = nil
+			m.authCode = nil
+			m.input = inputNone
+			m.authFailed = false
+			m.status = ""
+			m.view = ViewDashboard
+		}
+		return m, nil
+	}
+	if m.authFailed {
+		switch {
+		case keyText(msg) == "r":
+			return m.startLogin(m.authProv, m.authMethod)
+		case msg.Code == tea.KeyEsc || keyText(msg) == "c":
+			m.authFailed = false
+			m.authCode = nil
+			m.status = ""
+			m.view = ViewDashboard
+		}
+		return m, nil
+	}
 	switch {
 	case msg.Code == tea.KeyEsc:
 		m.view = ViewDashboard
@@ -808,21 +860,37 @@ func (m *Model) trimConfigField() {
 }
 
 func (m Model) waitOAuth(prov string, pending *auth.PendingLogin) tea.Cmd {
+	ctx := m.authCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	attempt := m.authAttempt
 	store := m.store
 	return func() tea.Msg {
-		msg, err := FinishOAuth(context.Background(), store, prov, pending)
-		return authDoneMsg{message: msg, err: err}
+		msg, err := FinishOAuth(ctx, store, prov, pending)
+		return authDoneMsg{message: msg, err: err, attempt: attempt}
 	}
 }
 
 func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 	m.authProv = prov
+	m.authMethod = method
+	m.authFailed = false
+	m.authCode = nil
+	m.pending = nil
 	if method == "device" {
+		m.authAttempt++
+		attempt := m.authAttempt
+		ctx, cancel := context.WithCancel(context.Background())
+		m.authCtx, m.authCancel = ctx, cancel
 		cfg := m.device
 		if prov == "gitlab" {
 			var err error
 			cfg, err = auth.GitLabDeviceFlow(auth.GitLabOAuthClientID())
 			if err != nil {
+				m.authCancel = nil
+				m.authCtx = nil
+				m.authFailed = true
 				m.status = err.Error()
 				return m, nil
 			}
@@ -830,6 +898,9 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 			var err error
 			cfg, err = auth.GitHubDeviceFlow(auth.GitHubOAuthClientID())
 			if err != nil {
+				m.authCancel = nil
+				m.authCtx = nil
+				m.authFailed = true
 				m.status = err.Error()
 				return m, nil
 			}
@@ -837,14 +908,16 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 			cfg = auth.XAIDeviceFlow()
 		}
 		return m, func() tea.Msg {
-			code, err := cfg.RequestCode(context.Background())
+			code, err := cfg.RequestCode(ctx)
 			if err != nil {
-				return authDoneMsg{err: err}
+				return authDoneMsg{err: err, attempt: attempt}
 			}
-			return deviceCodeMsg{code: code, cfg: cfg, provider: prov}
+			return deviceCodeMsg{code: code, cfg: cfg, provider: prov, attempt: attempt}
 		}
 	}
 	if method == "oauth" && (prov == "openai" || prov == "xai" || prov == "gitlab") {
+		m.authAttempt++
+		m.authCtx, m.authCancel = context.WithCancel(context.Background())
 		var (
 			p   *auth.PendingLogin
 			err error
@@ -858,6 +931,9 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 			} else if prov == "gitlab" {
 				flow, err = auth.GitLabFlow(auth.GitLabOAuthClientID())
 				if err != nil {
+					m.authCancel = nil
+					m.authCtx = nil
+					m.authFailed = true
 					m.status = err.Error()
 					return m, nil
 				}
@@ -865,11 +941,14 @@ func (m Model) startLogin(prov, method string) (tea.Model, tea.Cmd) {
 			p, err = flow.Begin()
 		}
 		if err != nil {
+			m.authCancel = nil
+			m.authCtx = nil
+			m.authFailed = true
 			m.status = err.Error()
 			return m, nil
 		}
 		m.pending = p
-		m.status = "browser login started"
+		m.status = "Waiting for browser authorization..."
 		if !p.LoopbackListening() {
 			m.input = inputOAuthPaste
 			m.status = "could not bind loopback; paste the callback URL"

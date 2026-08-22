@@ -96,7 +96,7 @@ Mode **review first** (default) always shows the HITL list. **auto-post** posts 
 | Link / configure | `tab` fields · `←`/`→` provider · `enter`/type model · `space` toggle · `+/-` max · `enter` run · `esc` back |
 | Review (HITL) | `j`/`k` · `a` approve · `r` reject · `e` edit · `s` summary · `p` post · `esc` back |
 | Posted | `n` new · `q` quit |
-| Auth | `j`/`k` · `enter` login · `k` platform PAT · `d` xAI/GitLab/GitHub device · `x` logout · `esc` back |
+| Auth | `j`/`k` · `enter` login · `k` platform PAT · `d` xAI/GitLab/GitHub device · `x` logout · `esc` back. OAuth progress blocks this screen until it succeeds, fails, or is canceled (`c`/`esc`); `r` retries a failed flow. |
 | Config | `tab`/`j`/`k` fields · `enter`/type edit · `s` save · `esc` back |
 | Anywhere | `ctrl+c` quit |
 
