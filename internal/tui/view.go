@@ -46,6 +46,8 @@ func (m Model) render() string {
 		b.WriteString(m.viewAuth())
 	case ViewConfig:
 		b.WriteString(m.viewConfig())
+	case ViewOnboarding:
+		b.WriteString(m.viewOnboarding())
 	case ViewError:
 		b.WriteString(errStyle.Render("  "+m.err) + "\n\n  enter back\n")
 	}
@@ -252,5 +254,37 @@ func (m Model) viewConfig() string {
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("  tab fields  enter/type edit  s save  esc back"))
 	b.WriteString("\n")
+	return b.String()
+}
+
+func (m Model) viewOnboarding() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("  First-run setup") + "\n\n")
+	if m.input == inputOnboardingSecret {
+		label := "API key"
+		if m.onboardingStep == onboardingSecret {
+			label = "personal access token"
+		}
+		b.WriteString("  " + label + ": " + strings.Repeat("•", len(m.editBuf)) + "█\n\n")
+		b.WriteString(mutedStyle.Render("  enter save  esc cancel") + "\n")
+		return b.String()
+	}
+	choices := m.onboardingChoices()
+	label := "Select an AI provider"
+	if m.onboardingStep == onboardingPlatform {
+		label = "Select a Git platform"
+		choices = []string{"github", "gitlab"}
+	}
+	b.WriteString("  " + label + "\n\n")
+	for i, choice := range choices {
+		line := "  " + choice
+		if i == m.onboardingCursor {
+			b.WriteString(selStyle.Render(line) + "\n")
+		} else {
+			b.WriteString(line + "\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  j/k move  enter select  existing credentials are reused") + "\n")
 	return b.String()
 }

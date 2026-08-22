@@ -92,14 +92,15 @@ func RunWith(start View) error {
 	cfg := config.Load()
 	sess := &liveSession{cfg: cfg, store: store}
 	m := New(Deps{
-		Store:        store,
-		Settings:     cfg,
-		LoadDash:     sess.loadDash,
-		RunReview:    sess.runReview,
-		Post:         sess.post,
-		Login:        sess.login,
-		StartView:    start,
-		SaveSettings: sess.saveSettings,
+		Store:           store,
+		Settings:        cfg,
+		LoadDash:        sess.loadDash,
+		RunReview:       sess.runReview,
+		Post:            sess.post,
+		Login:           sess.login,
+		StartView:       start,
+		SaveSettings:    sess.saveSettings,
+		CheckOnboarding: true,
 	})
 	_, err = tea.NewProgram(m).Run()
 	return err

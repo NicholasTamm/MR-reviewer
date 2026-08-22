@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -375,5 +378,123 @@ func TestConfigPanelOpenEditSave(t *testing.T) {
 	}
 	if m.Status() != "saved" {
 		t.Fatalf("status = %q", m.Status())
+	}
+}
+
+func TestOnboardingRoutesIncompleteStateAndCompletesWithKeyboard(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved config.Settings
+	m := New(Deps{
+		Store: store,
+		Settings: config.Settings{
+			Provider: "anthropic", GitHubAPI: "https://api.github.com", GitLabURL: "https://gitlab.com",
+			Focus: []string{"bugs"}, MaxComments: 10,
+		},
+		LoadDash:        func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
+		SaveSettings:    func(next config.Settings) error { saved = next; return nil },
+		CheckOnboarding: true,
+	})
+	if m.ViewName() != ViewOnboarding {
+		t.Fatalf("incomplete shared state view = %s", m.ViewName())
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.input != inputOnboardingSecret || !strings.Contains(m.Status(), "anthropic") {
+		t.Fatalf("provider prompt input=%d status=%q", m.input, m.Status())
+	}
+	for _, r := range "provider-secret" {
+		m, _ = applyKey(m, key(r))
+	}
+	if view := m.render(); strings.Contains(view, "provider-secret") {
+		t.Fatalf("provider secret exposed in view:\n%s", view)
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.onboardingStep != onboardingPlatform || m.input != inputNone {
+		t.Fatalf("after provider step=%d input=%d", m.onboardingStep, m.input)
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.input != inputOnboardingSecret || !strings.Contains(m.Status(), "github") {
+		t.Fatalf("platform prompt input=%d status=%q", m.input, m.Status())
+	}
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	if m.onboardingStep != onboardingPlatform || !strings.Contains(m.render(), "Select a Git platform") {
+		t.Fatalf("cancel platform credential step=%d view=\n%s", m.onboardingStep, m.render())
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	for _, r := range "platform-secret" {
+		m, _ = applyKey(m, key(r))
+	}
+	if view := m.render(); strings.Contains(view, "platform-secret") {
+		t.Fatalf("platform secret exposed in view:\n%s", view)
+	}
+	m, cmd := applyKey(m, special(tea.KeyEnter))
+	m = drain(t, m, cmd)
+	if m.ViewName() != ViewDashboard {
+		t.Fatalf("completed onboarding view = %s status=%q", m.ViewName(), m.Status())
+	}
+	if !saved.OnboardingStatus(store).Complete {
+		t.Fatalf("saved onboarding status = %+v", saved.OnboardingStatus(store))
+	}
+}
+
+func TestOnboardingBypassesCompleteSharedState(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("anthropic", auth.Credential{Type: auth.TypeAPIKey, APIKey: "provider"}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := auth.PublicTarget("github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "platform"}); err != nil {
+		t.Fatal(err)
+	}
+	providerFingerprint, _ := auth.CredentialFingerprint("anthropic", store, "")
+	platformFingerprint, _ := auth.PlatformCredentialFingerprint(target, store)
+	cfg := config.Settings{
+		Provider: "anthropic", GitHubAPI: "https://api.github.com", GitLabURL: "https://gitlab.com",
+		Focus: []string{"bugs"}, MaxComments: 10,
+		Onboarding: config.OnboardingState{
+			SchemaVersion: config.OnboardingSchemaVersion, Provider: "anthropic", ProviderFingerprint: providerFingerprint,
+			ProviderValidatedAt: time.Now(), Platform: "github", PlatformOrigin: target.Origin, PlatformAPIBase: target.APIBase,
+			PlatformFingerprint: platformFingerprint, PlatformValidatedAt: time.Now(),
+		},
+	}
+	m := New(Deps{Store: store, Settings: cfg, LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil }, CheckOnboarding: true})
+	if m.ViewName() != ViewDashboard {
+		t.Fatalf("complete shared state view = %s", m.ViewName())
+	}
+	cfg.Onboarding.ProviderFingerprint = "stale"
+	m = New(Deps{Store: store, Settings: cfg, LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil }, CheckOnboarding: true})
+	if m.ViewName() != ViewOnboarding {
+		t.Fatalf("stale shared credentials view = %s", m.ViewName())
+	}
+}
+
+func TestConfigCannotBypassIncompleteOnboarding(t *testing.T) {
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(Deps{
+		Store: store,
+		Settings: config.Settings{
+			Provider: "anthropic", GitHubAPI: "https://api.github.com", GitLabURL: "https://gitlab.com",
+		},
+		StartView:       ViewConfig,
+		CheckOnboarding: true,
+	})
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	if m.ViewName() != ViewOnboarding {
+		t.Fatalf("config escape view = %s", m.ViewName())
 	}
 }
