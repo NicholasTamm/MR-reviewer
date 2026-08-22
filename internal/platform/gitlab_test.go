@@ -174,3 +174,25 @@ func TestGitLabSearchFilters(t *testing.T) {
 		t.Fatalf("%+v", groups)
 	}
 }
+
+func TestGitLabCatalogActionableErrors(t *testing.T) {
+	for name, status := range map[string]int{
+		"authentication": http.StatusUnauthorized,
+		"authorization":  http.StatusForbidden,
+		"rate limit":     http.StatusTooManyRequests,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if status == http.StatusTooManyRequests {
+					w.Header().Set("Retry-After", "60")
+				}
+				http.Error(w, "denied", status)
+			}))
+			defer srv.Close()
+			_, err := (&GitLab{BaseURL: srv.URL}).ListProjects(context.Background(), "")
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), name) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
