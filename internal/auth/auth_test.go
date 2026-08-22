@@ -42,9 +42,19 @@ func TestDefaultPathUsesMrReviewerHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("MR_REVIEWER_AUTH", "")
+	t.Setenv("MR_REVIEWER_HOME", "")
 	got := DefaultPath()
 	want := filepath.Join(home, ".mr-reviewer", "auth.json")
 	if got != want {
+		t.Errorf("DefaultPath = %q, want %q", got, want)
+	}
+}
+
+func TestDefaultPathUsesSharedMrReviewerHomeOverride(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MR_REVIEWER_AUTH", "")
+	t.Setenv("MR_REVIEWER_HOME", root)
+	if got, want := DefaultPath(), filepath.Join(root, "auth.json"); got != want {
 		t.Errorf("DefaultPath = %q, want %q", got, want)
 	}
 }
