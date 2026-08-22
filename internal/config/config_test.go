@@ -272,20 +272,30 @@ func TestOnboardingStatusUsesSharedConfigurationAndCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := OnboardingState{
-		SchemaVersion:       OnboardingSchemaVersion,
-		Provider:            "anthropic",
-		Platform:            target.Platform,
-		PlatformOrigin:      target.Origin,
-		PlatformAPIBase:     target.APIBase,
-		ProviderValidatedAt: time.Now().UTC(),
-		PlatformValidatedAt: time.Now().UTC(),
-	}
 	if err := store.Set("anthropic", auth.Credential{Type: auth.TypeAPIKey, APIKey: "provider-secret"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "platform-secret"}); err != nil {
 		t.Fatal(err)
+	}
+	providerFingerprint, ok := auth.CredentialFingerprint("anthropic", store, "")
+	if !ok {
+		t.Fatal("provider credential fingerprint unavailable")
+	}
+	platformFingerprint, ok := auth.PlatformCredentialFingerprint(target, store)
+	if !ok {
+		t.Fatal("platform credential fingerprint unavailable")
+	}
+	state := OnboardingState{
+		SchemaVersion:       OnboardingSchemaVersion,
+		Provider:            "anthropic",
+		ProviderFingerprint: providerFingerprint,
+		Platform:            target.Platform,
+		PlatformOrigin:      target.Origin,
+		PlatformAPIBase:     target.APIBase,
+		PlatformFingerprint: platformFingerprint,
+		ProviderValidatedAt: time.Now().UTC(),
+		PlatformValidatedAt: time.Now().UTC(),
 	}
 	if err := SaveOnboarding(state); err != nil {
 		t.Fatal(err)
@@ -297,7 +307,7 @@ func TestOnboardingStatusUsesSharedConfigurationAndCredentials(t *testing.T) {
 	if err := store.DeletePlatform(context.Background(), target); err != nil {
 		t.Fatal(err)
 	}
-	if status := Load().OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "missing or expired") {
+	if status := Load().OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "credentials") {
 		t.Fatalf("missing platform status = %+v", status)
 	}
 	raw, err := os.ReadFile(ConfigPath())
@@ -321,9 +331,11 @@ func TestOnboardingStatusBlocksExpiredOrUnvalidatedCredentials(t *testing.T) {
 	state := OnboardingState{
 		SchemaVersion:       OnboardingSchemaVersion,
 		Provider:            "openai",
+		ProviderFingerprint: "old-fingerprint",
 		Platform:            "github",
 		PlatformOrigin:      target.Origin,
 		PlatformAPIBase:     target.APIBase,
+		PlatformFingerprint: "platform-fingerprint",
 		ProviderValidatedAt: time.Now().UTC(),
 		PlatformValidatedAt: time.Now().UTC(),
 	}
@@ -333,8 +345,14 @@ func TestOnboardingStatusBlocksExpiredOrUnvalidatedCredentials(t *testing.T) {
 	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "token"}); err != nil {
 		t.Fatal(err)
 	}
-	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "missing or expired") {
+	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "credentials") {
 		t.Fatalf("expired provider status = %+v", status)
+	}
+	if err := store.Set("openai", auth.Credential{Type: auth.TypeAPIKey, APIKey: "replacement"}); err != nil {
+		t.Fatal(err)
+	}
+	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "changed") {
+		t.Fatalf("changed provider status = %+v", status)
 	}
 	state.ProviderValidatedAt = time.Time{}
 	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "validate") {

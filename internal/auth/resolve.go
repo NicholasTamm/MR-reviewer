@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -62,19 +64,34 @@ func EnvNames(provider string) []string { return envNames(provider) }
 // CredentialsAvailable reports whether a provider has a locally usable credential.
 // Network validation is intentionally left to the client onboarding flow.
 func CredentialsAvailable(provider string, store *Store, extraEnv string) bool {
+	_, ok := CredentialFingerprint(provider, store, extraEnv)
+	return ok
+}
+
+// CredentialFingerprint returns a stable, secret-free identifier for the
+// credential currently selected by normal provider resolution.
+func CredentialFingerprint(provider string, store *Store, extraEnv string) (string, bool) {
 	provider = canonicalProvider(provider)
 	if extraEnv != "" && os.Getenv(extraEnv) != "" {
-		return true
+		return fingerprint(os.Getenv(extraEnv)), true
 	}
-	if _, ok := APIKey(provider, store); ok {
-		return true
+	if key, ok := APIKey(provider, store); ok {
+		return fingerprint(key), true
 	}
 	if store == nil {
-		return false
+		return "", false
 	}
 	credential, ok := store.Get(provider)
-	return ok && credential.Type == TypeOAuth && credential.Access != "" &&
-		(credential.ExpiresAt.IsZero() || time.Until(credential.ExpiresAt) > 0)
+	if !ok || credential.Type != TypeOAuth || credential.Access == "" ||
+		(!credential.ExpiresAt.IsZero() && time.Until(credential.ExpiresAt) <= 0) {
+		return "", false
+	}
+	return fingerprint(credential.Access), true
+}
+
+func fingerprint(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func freshOAuth(ctx context.Context, store *Store, provider string) (Credential, error) {

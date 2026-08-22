@@ -35,9 +35,11 @@ const OnboardingSchemaVersion = 1
 type OnboardingState struct {
 	SchemaVersion       int       `json:"schemaVersion,omitempty"`
 	Provider            string    `json:"provider,omitempty"`
+	ProviderFingerprint string    `json:"providerFingerprint,omitempty"`
 	Platform            string    `json:"platform,omitempty"`
 	PlatformOrigin      string    `json:"platformOrigin,omitempty"`
 	PlatformAPIBase     string    `json:"platformAPIBase,omitempty"`
+	PlatformFingerprint string    `json:"platformFingerprint,omitempty"`
 	ProviderValidatedAt time.Time `json:"providerValidatedAt,omitempty"`
 	PlatformValidatedAt time.Time `json:"platformValidatedAt,omitempty"`
 }
@@ -176,8 +178,9 @@ func (s Settings) OnboardingStatus(store *auth.Store) OnboardingStatus {
 	if isCustom {
 		extraEnv = custom.APIKeyEnv
 	}
-	if !auth.CredentialsAvailable(provider, store, extraEnv) {
-		return OnboardingStatus{Reason: "AI provider credentials are missing or expired"}
+	providerFingerprint, ok := auth.CredentialFingerprint(provider, store, extraEnv)
+	if !ok || state.ProviderFingerprint == "" || state.ProviderFingerprint != providerFingerprint {
+		return OnboardingStatus{Reason: "AI provider credentials are missing, expired, or changed"}
 	}
 	platform := strings.ToLower(strings.TrimSpace(state.Platform))
 	if platform != "github" && platform != "gitlab" {
@@ -187,8 +190,9 @@ func (s Settings) OnboardingStatus(store *auth.Store) OnboardingStatus {
 		return OnboardingStatus{Reason: "validate the selected Git platform"}
 	}
 	target, err := auth.NewPlatformTarget(platform, state.PlatformOrigin, state.PlatformAPIBase)
-	if err != nil || !auth.PlatformCredentialsAvailable(target, store) {
-		return OnboardingStatus{Reason: "Git platform credentials are missing or expired"}
+	platformFingerprint, ok := auth.PlatformCredentialFingerprint(target, store)
+	if err != nil || !ok || state.PlatformFingerprint == "" || state.PlatformFingerprint != platformFingerprint {
+		return OnboardingStatus{Reason: "Git platform credentials are missing, expired, or changed"}
 	}
 	return OnboardingStatus{Complete: true}
 }
