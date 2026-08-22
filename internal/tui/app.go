@@ -8,6 +8,7 @@ import (
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/config"
+	"github.com/jonathanung/mr-reviewer/internal/platform"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -19,12 +20,32 @@ type liveSession struct {
 	device auth.DeviceConfig
 }
 
-func (s *liveSession) loadDash(search string) ([]review.ProjectMergeRequests, error) {
-	gl, err := s.cfg.GitLabBrowser(s.store)
+func (s *liveSession) catalog(name string) (platform.Catalog, error) {
+	client, err := s.cfg.PlatformFor(review.Info{Platform: name}, s.store)
 	if err != nil {
 		return nil, err
 	}
-	return gl.ListVisibleMergeRequests(context.Background(), search)
+	catalog, ok := client.(platform.Catalog)
+	if !ok {
+		return nil, fmt.Errorf("%s does not support browsing", name)
+	}
+	return catalog, nil
+}
+
+func (s *liveSession) loadProjects(name string) ([]review.Project, error) {
+	catalog, err := s.catalog(name)
+	if err != nil {
+		return nil, err
+	}
+	return catalog.ListProjects(context.Background(), "")
+}
+
+func (s *liveSession) loadReviews(name string, project review.Project) ([]review.ReviewSummary, error) {
+	catalog, err := s.catalog(name)
+	if err != nil {
+		return nil, err
+	}
+	return catalog.ListProjectReviews(context.Background(), project, "")
 }
 
 func (s *liveSession) runReview(url, name, model string, focus []string, maxC int) (review.Result, review.Metadata, error) {
@@ -94,7 +115,8 @@ func RunWith(start View) error {
 	m := New(Deps{
 		Store:           store,
 		Settings:        cfg,
-		LoadDash:        sess.loadDash,
+		LoadProjects:    sess.loadProjects,
+		LoadReviews:     sess.loadReviews,
 		RunReview:       sess.runReview,
 		Post:            sess.post,
 		Login:           sess.login,
