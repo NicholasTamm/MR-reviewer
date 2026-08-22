@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -25,6 +27,7 @@ const (
 	ViewAuth
 	ViewError
 	ViewConfig
+	ViewOnboarding
 )
 
 func (v View) String() string {
@@ -45,6 +48,8 @@ func (v View) String() string {
 		return "error"
 	case ViewConfig:
 		return "config"
+	case ViewOnboarding:
+		return "onboarding"
 	default:
 		return "unknown"
 	}
@@ -73,6 +78,7 @@ const (
 	inputAPIKey
 	inputOAuthPaste
 	inputConfig
+	inputOnboardingSecret
 )
 
 type configField int
@@ -81,6 +87,14 @@ const (
 	cfgFieldGitHub configField = iota
 	cfgFieldGitLab
 	cfgFieldAnthropic
+)
+
+type onboardingStep int
+
+const (
+	onboardingProvider onboardingStep = iota
+	onboardingPlatform
+	onboardingSecret
 )
 
 type hitlComment struct {
@@ -149,6 +163,12 @@ type Model struct {
 	cfgGitHub    string
 	cfgGitLab    string
 	cfgAnthropic string
+
+	// first-run onboarding
+	onboardingStep     onboardingStep
+	onboardingCursor   int
+	onboardingProvider string
+	onboardingPlatform string
 }
 
 type dashItem struct {
@@ -187,16 +207,17 @@ type deviceCodeMsg struct {
 }
 
 type Deps struct {
-	Store        *auth.Store
-	Settings     config.Settings
-	LoadDash     func(search string) ([]review.ProjectMergeRequests, error)
-	RunReview    func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
-	Post         func(result review.Result) error
-	Login        func(provider, method, secret string) (string, error)
-	BeginOAuth   func(provider string) (*auth.PendingLogin, error)
-	Device       auth.DeviceConfig
-	StartView    View
-	SaveSettings func(config.Settings) error
+	Store           *auth.Store
+	Settings        config.Settings
+	LoadDash        func(search string) ([]review.ProjectMergeRequests, error)
+	RunReview       func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
+	Post            func(result review.Result) error
+	Login           func(provider, method, secret string) (string, error)
+	BeginOAuth      func(provider string) (*auth.PendingLogin, error)
+	Device          auth.DeviceConfig
+	StartView       View
+	SaveSettings    func(config.Settings) error
+	CheckOnboarding bool
 }
 
 func New(deps Deps) Model {
@@ -228,6 +249,8 @@ func New(deps Deps) Model {
 	}
 	if deps.StartView == ViewConfig {
 		m.view = ViewConfig
+	} else if deps.CheckOnboarding && deps.Store != nil && !cfg.OnboardingStatus(deps.Store).Complete {
+		m.view = ViewOnboarding
 	}
 	if m.maxC <= 0 {
 		m.maxC = 10
@@ -407,6 +430,8 @@ func (m Model) handlePaste(s string) (tea.Model, tea.Cmd) {
 		m.editBuf += s
 	case inputConfig:
 		m.appendConfigField(s)
+	case inputOnboardingSecret:
+		m.editBuf += s
 	default:
 		if m.view == ViewLink && m.field == fieldURL {
 			m.url += s
@@ -442,6 +467,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.keysAuth(msg)
 	case ViewConfig:
 		return m.keysConfig(msg)
+	case ViewOnboarding:
+		return m.keysOnboarding(msg)
 	case ViewError:
 		if msg.Code == tea.KeyEnter || msg.Code == tea.KeyEsc {
 			m.view = ViewLink
@@ -455,6 +482,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case tea.KeyEsc:
+		if m.input == inputOnboardingSecret && m.onboardingStep == onboardingSecret {
+			m.onboardingStep = onboardingPlatform
+		}
 		m.input = inputNone
 		m.editBuf = ""
 		return m, nil
@@ -488,6 +518,8 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.model += ch
 	case inputConfig:
 		m.appendConfigField(ch)
+	case inputOnboardingSecret:
+		m.editBuf += ch
 	default:
 		m.editBuf += ch
 	}
@@ -541,6 +573,35 @@ func (m Model) commitInput() (tea.Model, tea.Cmd) {
 		m.status = "Exchanging code…"
 		m.input = inputNone
 		return m, m.waitOAuth(m.authProv, m.pending)
+	case inputOnboardingSecret:
+		secret := strings.TrimSpace(m.editBuf)
+		m.editBuf = ""
+		m.input = inputNone
+		if secret == "" {
+			m.status = "credential is required"
+			return m, nil
+		}
+		if m.store == nil {
+			m.status = "credential store is unavailable"
+			return m, nil
+		}
+		if m.onboardingStep == onboardingProvider {
+			if err := m.store.Set(m.onboardingProvider, auth.Credential{Type: auth.TypeAPIKey, APIKey: secret}); err != nil {
+				m.status = "could not save provider credential; try again"
+				return m, nil
+			}
+			return m.finishProviderOnboarding()
+		}
+		target, err := m.onboardingPlatformTarget()
+		if err != nil {
+			m.status = "platform configuration is invalid; repair it in config"
+			return m, nil
+		}
+		if err := m.store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: secret}); err != nil {
+			m.status = "could not save platform credential; try again"
+			return m, nil
+		}
+		return m.finishPlatformOnboarding()
 	}
 	m.input = inputNone
 	return m, nil
@@ -797,7 +858,11 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) keysConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEsc:
-		m.view = ViewDashboard
+		if m.onboardingRequired() {
+			m.view = ViewOnboarding
+		} else {
+			m.view = ViewDashboard
+		}
 		return m, nil
 	case msg.Code == tea.KeyTab || msg.Code == tea.KeyDown || keyText(msg) == "j":
 		m.cfgField = (m.cfgField + 1) % 3
@@ -816,6 +881,133 @@ func (m Model) keysConfig(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.appendConfigField(keyText(msg))
 	}
 	return m, nil
+}
+
+func (m Model) keysOnboarding(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	choices := m.onboardingChoices()
+	if m.onboardingStep == onboardingPlatform {
+		choices = []string{"github", "gitlab"}
+	}
+	if len(choices) == 0 {
+		m.status = "no supported AI providers are configured"
+		return m, nil
+	}
+	switch {
+	case msg.Code == tea.KeyDown || keyText(msg) == "j":
+		m.onboardingCursor = (m.onboardingCursor + 1) % len(choices)
+	case msg.Code == tea.KeyUp || keyText(msg) == "k":
+		m.onboardingCursor = (m.onboardingCursor + len(choices) - 1) % len(choices)
+	case msg.Code == tea.KeyEnter:
+		if m.onboardingStep == onboardingProvider {
+			m.onboardingProvider = choices[m.onboardingCursor]
+			return m.finishProviderOnboarding()
+		}
+		m.onboardingPlatform = choices[m.onboardingCursor]
+		return m.finishPlatformOnboarding()
+	}
+	return m, nil
+}
+
+func (m Model) finishProviderOnboarding() (tea.Model, tea.Cmd) {
+	provider := config.CanonicalProviderID(m.onboardingProvider)
+	extraEnv := ""
+	if custom, ok := config.FindCustom(m.cfg.Providers.Customs, provider); ok {
+		extraEnv = custom.APIKeyEnv
+	}
+	if _, ok := auth.CredentialFingerprint(provider, m.store, extraEnv); !ok {
+		m.onboardingStep = onboardingProvider
+		m.input = inputOnboardingSecret
+		m.status = "enter an API key for " + provider
+		return m, nil
+	}
+	m.onboardingProvider = provider
+	m.onboardingStep = onboardingPlatform
+	m.onboardingCursor = 0
+	m.status = "provider credential selected"
+	return m, nil
+}
+
+func (m Model) finishPlatformOnboarding() (tea.Model, tea.Cmd) {
+	target, err := m.onboardingPlatformTarget()
+	if err != nil {
+		m.status = "platform configuration is invalid; repair it in config"
+		return m, nil
+	}
+	fingerprint, ok := auth.PlatformCredentialFingerprint(target, m.store)
+	if !ok {
+		m.onboardingStep = onboardingSecret
+		m.input = inputOnboardingSecret
+		m.status = "enter a personal access token for " + m.onboardingPlatform
+		return m, nil
+	}
+	providerFingerprint, ok := m.providerFingerprint()
+	if !ok {
+		m.onboardingStep = onboardingProvider
+		m.status = "provider credential is missing; select it again"
+		return m, nil
+	}
+	now := time.Now().UTC()
+	next := m.cfg
+	next.Onboarding = config.OnboardingState{
+		SchemaVersion: config.OnboardingSchemaVersion, Provider: m.onboardingProvider,
+		ProviderFingerprint: providerFingerprint, ProviderValidatedAt: now,
+		Platform: m.onboardingPlatform, PlatformOrigin: target.Origin, PlatformAPIBase: target.APIBase,
+		PlatformFingerprint: fingerprint, PlatformValidatedAt: now,
+	}
+	if err := m.saveSettings(next); err != nil {
+		m.status = "could not save onboarding configuration; try again"
+		return m, nil
+	}
+	m.cfg = next
+	m.provider = m.onboardingProvider
+	m.model = provider.DefaultModel(m.provider)
+	m.view = ViewDashboard
+	m.status = "onboarding complete"
+	return m, m.fetchDash()
+}
+
+func (m Model) providerFingerprint() (string, bool) {
+	extraEnv := ""
+	if custom, ok := config.FindCustom(m.cfg.Providers.Customs, m.onboardingProvider); ok {
+		extraEnv = custom.APIKeyEnv
+	}
+	return auth.CredentialFingerprint(m.onboardingProvider, m.store, extraEnv)
+}
+
+func (m Model) onboardingPlatformTarget() (auth.PlatformTarget, error) {
+	switch m.onboardingPlatform {
+	case "github":
+		return auth.NewPlatformTarget("github", "https://github.com", m.cfg.GitHubAPI)
+	case "gitlab":
+		return auth.NewPlatformTarget("gitlab", m.cfg.GitLabURL, strings.TrimRight(m.cfg.GitLabURL, "/")+"/api/v4")
+	default:
+		return auth.PlatformTarget{}, fmt.Errorf("unsupported platform")
+	}
+}
+
+func (m Model) onboardingChoices() []string {
+	seen := map[string]bool{}
+	var choices []string
+	for _, name := range m.cfg.ProviderNames() {
+		name = config.CanonicalProviderID(name)
+		if name == "echo" || name == "ollama" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		choices = append(choices, name)
+	}
+	return choices
+}
+
+func (m Model) saveSettings(next config.Settings) error {
+	if m.saveFn != nil {
+		return m.saveFn(next)
+	}
+	return config.Save(next)
+}
+
+func (m Model) onboardingRequired() bool {
+	return m.store != nil && !m.cfg.OnboardingStatus(m.store).Complete
 }
 
 func (m Model) saveConfig() (tea.Model, tea.Cmd) {
