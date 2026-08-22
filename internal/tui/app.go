@@ -23,11 +23,21 @@ type liveSession struct {
 func (s *liveSession) catalog(name string) (platform.Catalog, error) {
 	client, err := s.cfg.PlatformFor(review.Info{Platform: name}, s.store)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s browsing unavailable: %w", name, err)
+	}
+	// Fail before issuing a catalog request when this platform has no usable credential.
+	switch client := client.(type) {
+	case *platform.GitHub:
+		_, err = client.Credentials(context.Background())
+	case *platform.GitLab:
+		_, err = client.Credentials(context.Background())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s browsing unavailable: %w", name, err)
 	}
 	catalog, ok := client.(platform.Catalog)
 	if !ok {
-		return nil, fmt.Errorf("%s does not support browsing", name)
+		return nil, fmt.Errorf("%s browsing unavailable: not supported", name)
 	}
 	return catalog, nil
 }
@@ -37,7 +47,11 @@ func (s *liveSession) loadProjects(name string) ([]review.Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	return catalog.ListProjects(context.Background(), "")
+	projects, err := catalog.ListProjects(context.Background(), "")
+	if err != nil {
+		return nil, fmt.Errorf("%s project catalog: %w", name, err)
+	}
+	return projects, nil
 }
 
 func (s *liveSession) loadReviews(name string, project review.Project) ([]review.ReviewSummary, error) {
@@ -45,7 +59,11 @@ func (s *liveSession) loadReviews(name string, project review.Project) ([]review
 	if err != nil {
 		return nil, err
 	}
-	return catalog.ListProjectReviews(context.Background(), project, "")
+	reviews, err := catalog.ListProjectReviews(context.Background(), project, "")
+	if err != nil {
+		return nil, fmt.Errorf("%s project %s reviews: %w", name, project.Path, err)
+	}
+	return reviews, nil
 }
 
 func (s *liveSession) runReview(url, name, model string, focus []string, maxC int) (review.Result, review.Metadata, error) {

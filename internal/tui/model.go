@@ -118,12 +118,13 @@ type Model struct {
 	store *auth.Store
 
 	// browse
-	platform      string
-	projects      []review.Project
-	reviews       []review.ReviewSummary
-	project       review.Project
-	cursor        int
-	catalogLoaded bool
+	platform       string
+	projects       []review.Project
+	reviews        []review.ReviewSummary
+	project        review.Project
+	cursor         int
+	catalogLoaded  bool
+	catalogRequest uint64
 
 	// configure / link
 	url      string
@@ -180,6 +181,7 @@ type Model struct {
 
 type projectsMsg struct {
 	platform string
+	request  uint64
 	projects []review.Project
 	err      error
 }
@@ -187,6 +189,7 @@ type projectsMsg struct {
 type reviewsMsg struct {
 	platform string
 	project  review.Project
+	request  uint64
 	reviews  []review.ReviewSummary
 	err      error
 }
@@ -292,10 +295,10 @@ func (m Model) fetchProjects() tea.Cmd {
 	if m.loadProjects == nil {
 		return nil
 	}
-	platform := m.platform
+	platform, request := m.platform, m.catalogRequest
 	return func() tea.Msg {
 		projects, err := m.loadProjects(platform)
-		return projectsMsg{platform: platform, projects: projects, err: err}
+		return projectsMsg{platform: platform, request: request, projects: projects, err: err}
 	}
 }
 
@@ -303,10 +306,10 @@ func (m Model) fetchReviews() tea.Cmd {
 	if m.loadReviews == nil {
 		return nil
 	}
-	platform, project := m.platform, m.project
+	platform, project, request := m.platform, m.project, m.catalogRequest
 	return func() tea.Msg {
 		reviews, err := m.loadReviews(platform, project)
-		return reviewsMsg{platform: platform, project: project, reviews: reviews, err: err}
+		return reviewsMsg{platform: platform, project: project, request: request, reviews: reviews, err: err}
 	}
 }
 
@@ -347,7 +350,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case projectsMsg:
-		if msg.platform != m.platform || m.view != ViewProjects {
+		if msg.platform != m.platform || msg.request != m.catalogRequest || m.view != ViewProjects {
 			return m, nil
 		}
 		if msg.err != nil {
@@ -361,7 +364,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		return m, nil
 	case reviewsMsg:
-		if msg.platform != m.platform || msg.project.ID != m.project.ID || m.view != ViewReviews {
+		if msg.platform != m.platform || msg.project.ID != m.project.ID || msg.request != m.catalogRequest || m.view != ViewReviews {
 			return m, nil
 		}
 		if msg.err != nil {
@@ -660,6 +663,7 @@ func (m Model) keysDashboard(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.catalogLoaded = false
 		m.status = ""
+		m.catalogRequest++
 		return m, m.fetchProjects()
 	case keyText(msg) == "l":
 		m.view = ViewLink
@@ -687,6 +691,7 @@ func (m Model) keysProjects(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keyText(msg) == "r":
 		m.catalogLoaded = false
 		m.status = ""
+		m.catalogRequest++
 		return m, m.fetchProjects()
 	case msg.Code == tea.KeyDown || keyText(msg) == "j":
 		if m.cursor < len(m.projects)-1 {
@@ -701,6 +706,7 @@ func (m Model) keysProjects(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.view = ViewReviews
 		m.cursor = 0
 		m.catalogLoaded = false
+		m.catalogRequest++
 		return m, m.fetchReviews()
 	}
 	return m, nil
@@ -714,6 +720,7 @@ func (m Model) keysReviews(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keyText(msg) == "r":
 		m.catalogLoaded = false
 		m.status = ""
+		m.catalogRequest++
 		return m, m.fetchReviews()
 	case msg.Code == tea.KeyDown || keyText(msg) == "j":
 		if m.cursor < len(m.reviews)-1 {
