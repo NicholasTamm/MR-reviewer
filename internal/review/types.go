@@ -61,6 +61,28 @@ type FetchResult struct {
 	Metadata  Metadata
 }
 
+// Project is a repository or project available to a platform credential.
+// ID is the platform's stable project identifier used for scoped requests.
+type Project struct {
+	Platform string
+	ID       string
+	Path     string
+	WebURL   string
+}
+
+// ReviewSummary is an open pull or merge request in a project.
+type ReviewSummary struct {
+	Project      Project
+	Number       int
+	Title        string
+	Author       string
+	SourceBranch string
+	TargetBranch string
+	UpdatedAt    string
+	WebURL       string
+	Draft        bool
+}
+
 // ProjectSummary is a GitLab project the token can see.
 type ProjectSummary struct {
 	ProjectID   int

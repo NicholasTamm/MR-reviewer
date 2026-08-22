@@ -115,6 +115,14 @@ func TestGitLabFetchPostAndDashboard(t *testing.T) {
 	if err != nil || pm.ProjectPath != "group/project" || len(pm.MergeRequests) != 1 {
 		t.Fatalf("%+v err=%v", pm, err)
 	}
+	catalogProjects, err := c.ListProjects(context.Background(), "group")
+	if err != nil || len(catalogProjects) != 1 || catalogProjects[0].ID != "9" {
+		t.Fatalf("catalog projects = %+v err=%v", catalogProjects, err)
+	}
+	catalogReviews, err := c.ListProjectReviews(context.Background(), catalogProjects[0], "login")
+	if err != nil || len(catalogReviews) != 1 || catalogReviews[0].Number != 7 {
+		t.Fatalf("catalog reviews = %+v err=%v", catalogReviews, err)
+	}
 }
 
 func TestGitLabAuthenticationHeaders(t *testing.T) {
@@ -164,5 +172,27 @@ func TestGitLabSearchFilters(t *testing.T) {
 	}
 	if len(groups) != 0 {
 		t.Fatalf("%+v", groups)
+	}
+}
+
+func TestGitLabCatalogActionableErrors(t *testing.T) {
+	for name, status := range map[string]int{
+		"authentication": http.StatusUnauthorized,
+		"authorization":  http.StatusForbidden,
+		"rate limit":     http.StatusTooManyRequests,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if status == http.StatusTooManyRequests {
+					w.Header().Set("Retry-After", "60")
+				}
+				http.Error(w, "denied", status)
+			}))
+			defer srv.Close()
+			_, err := (&GitLab{BaseURL: srv.URL}).ListProjects(context.Background(), "")
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), name) {
+				t.Fatalf("err = %v", err)
+			}
+		})
 	}
 }

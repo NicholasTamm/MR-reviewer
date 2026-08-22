@@ -131,3 +131,99 @@ func TestGitHubPostRequiresFetch(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestGitHubCatalogUsesScopedBoundedRequests(t *testing.T) {
+	var repositoryPages, pullPages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user/repos":
+			repositoryPages = append(repositoryPages, r.URL.Query().Get("page"))
+			if r.URL.Query().Get("per_page") != "100" || r.URL.Query().Get("affiliation") != "owner,collaborator,organization_member" {
+				t.Errorf("repository query = %s", r.URL.RawQuery)
+			}
+			if r.URL.Query().Get("page") == "1" {
+				batch := make([]map[string]string, 100)
+				for i := range batch {
+					batch[i] = map[string]string{"name": "other", "full_name": "owner/other", "html_url": "https://github.com/owner/other"}
+				}
+				_ = json.NewEncoder(w).Encode(batch)
+				return
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]string{{"name": "repo", "full_name": "owner/repo", "html_url": "https://github.com/owner/repo"}})
+		case "/repos/owner/repo/pulls":
+			pullPages = append(pullPages, r.URL.Query().Get("page"))
+			if r.URL.Query().Get("state") != "open" || r.URL.Query().Get("per_page") != "100" {
+				t.Errorf("pull request query = %s", r.URL.RawQuery)
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"number": 3, "title": "Catalog feature", "updated_at": "2026-01-01", "html_url": "https://github.com/owner/repo/pull/3",
+				"user": map[string]string{"login": "ada"}, "head": map[string]string{"ref": "feature"}, "base": map[string]string{"ref": "main"},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &GitHub{BaseURL: srv.URL}
+	projects, err := c.ListProjects(context.Background(), "repo")
+	if err != nil || len(projects) != 1 || projects[0].ID != "owner/repo" {
+		t.Fatalf("projects = %+v err=%v", projects, err)
+	}
+	if got := strings.Join(repositoryPages, ","); got != "1,2" {
+		t.Fatalf("repository pages = %s", got)
+	}
+	reviews, err := c.ListProjectReviews(context.Background(), projects[0], "catalog")
+	if err != nil || len(reviews) != 1 || reviews[0].Number != 3 || reviews[0].Author != "ada" {
+		t.Fatalf("reviews = %+v err=%v", reviews, err)
+	}
+	if got := strings.Join(pullPages, ","); got != "1" {
+		t.Fatalf("pull pages = %s", got)
+	}
+}
+
+func TestGitHubCatalogActionableErrors(t *testing.T) {
+	for name, status := range map[string]int{
+		"authentication": http.StatusUnauthorized,
+		"authorization":  http.StatusForbidden,
+		"rate limit":     http.StatusTooManyRequests,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if status == http.StatusTooManyRequests {
+					w.Header().Set("Retry-After", "60")
+				}
+				http.Error(w, "denied", status)
+			}))
+			defer srv.Close()
+			_, err := (&GitHub{BaseURL: srv.URL}).ListProjects(context.Background(), "")
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), name) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}
+
+func TestGitHubCatalogCapsPagination(t *testing.T) {
+	requests := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests[r.URL.Path]++
+		batch := make([]map[string]string, catalogPageSize)
+		for i := range batch {
+			batch[i] = map[string]string{"full_name": "owner/repo", "title": "Open review"}
+		}
+		_ = json.NewEncoder(w).Encode(batch)
+	}))
+	defer srv.Close()
+
+	c := &GitHub{BaseURL: srv.URL}
+	if _, err := c.ListProjects(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ListProjectReviews(context.Background(), review.Project{Platform: "github", ID: "owner/repo"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if requests["/user/repos"] != maxCatalogPages || requests["/repos/owner/repo/pulls"] != maxCatalogPages {
+		t.Fatalf("requests = %+v, want %d per endpoint", requests, maxCatalogPages)
+	}
+}
