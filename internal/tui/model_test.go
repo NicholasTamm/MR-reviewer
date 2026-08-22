@@ -53,15 +53,11 @@ func testModel(t *testing.T) Model {
 	t.Helper()
 	return New(Deps{
 		Settings: config.Settings{Provider: "echo", Model: "echo", Focus: []string{"bugs"}, MaxComments: 10},
-		LoadDash: func(search string) ([]review.ProjectMergeRequests, error) {
-			return []review.ProjectMergeRequests{{
-				ProjectID: 1, ProjectPath: "group/project",
-				MergeRequests: []review.MergeRequestSummary{{
-					ProjectID: 1, ProjectPath: "group/project", IID: 7,
-					Title: "Fix login", WebURL: "https://gitlab.com/group/project/-/merge_requests/7",
-					SourceBranch: "feat", TargetBranch: "main",
-				}},
-			}}, nil
+		LoadProjects: func(platform string) ([]review.Project, error) {
+			return []review.Project{{Platform: platform, ID: "1", Path: "group/project"}}, nil
+		},
+		LoadReviews: func(platform string, project review.Project) ([]review.ReviewSummary, error) {
+			return []review.ReviewSummary{{Project: project, Number: 7, Title: "Fix login", WebURL: "https://gitlab.com/group/project/-/merge_requests/7", SourceBranch: "feat", TargetBranch: "main"}}, nil
 		},
 		RunReview: func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error) {
 			return review.Result{
@@ -81,39 +77,106 @@ func testModel(t *testing.T) Model {
 	})
 }
 
-func TestDashboardLoadsAndSelectsMR(t *testing.T) {
+func TestBrowseSelectsProjectAndMR(t *testing.T) {
 	m := testModel(t)
-	m = drain(t, m, m.Init())
 	if m.ViewName() != ViewDashboard {
 		t.Fatalf("view = %s", m.ViewName())
 	}
-	if !strings.Contains(m.render(), "Fix login") || !strings.Contains(m.render(), "group/project") {
+	if !strings.Contains(m.render(), "GITLAB") {
 		t.Fatalf("view =\n%s", m.render())
 	}
-	m, _ = applyKey(m, special(tea.KeyEnter))
-	if m.ViewName() != ViewLink {
+	m, cmd := applyKey(m, special(tea.KeyEnter))
+	m = drain(t, m, cmd)
+	if m.ViewName() != ViewProjects || !strings.Contains(m.render(), "group/project") {
 		t.Fatalf("view = %s", m.ViewName())
 	}
-	if m.URL() != "https://gitlab.com/group/project/-/merge_requests/7" {
-		t.Fatalf("url = %q", m.URL())
+	m, cmd = applyKey(m, special(tea.KeyEnter))
+	m = drain(t, m, cmd)
+	if m.ViewName() != ViewReviews || !strings.Contains(m.render(), "Fix login") {
+		t.Fatalf("view = %s", m.ViewName())
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.ViewName() != ViewLink || m.URL() != "https://gitlab.com/group/project/-/merge_requests/7" {
+		t.Fatalf("view=%s url=%q", m.ViewName(), m.URL())
 	}
 }
 
-func TestLinkFromDashboardAndSearch(t *testing.T) {
+func TestPlatformSwitchIsScopedToBrowseEntry(t *testing.T) {
 	m := testModel(t)
-	m = drain(t, m, m.Init())
-	m, _ = applyKey(m, key('l'))
-	if m.ViewName() != ViewLink {
-		t.Fatalf("view = %s", m.ViewName())
+	m, _ = applyKey(m, special(tea.KeyTab))
+	if !strings.Contains(m.render(), "GITHUB") {
+		t.Fatalf("view =\n%s", m.render())
 	}
-	m = testModel(t)
-	m = drain(t, m, m.Init())
-	m, _ = applyKey(m, key('/'))
-	m, cmd := applyKey(m, key('x'))
+	m, _ = applyKey(m, key('l'))
+	m, _ = applyKey(m, special(tea.KeyTab))
+	if m.field != fieldProvider {
+		t.Fatalf("link tab changed field=%d", m.field)
+	}
+}
+
+func TestBrowseBackNavigationAndCatalogStates(t *testing.T) {
+	m := testModel(t)
+	m, cmd := applyKey(m, special(tea.KeyEnter))
+	if m.ViewName() != ViewProjects || !strings.Contains(m.render(), "loading projects") {
+		t.Fatalf("project loading view =\n%s", m.render())
+	}
+	m = drain(t, m, cmd)
 	m, cmd = applyKey(m, special(tea.KeyEnter))
 	m = drain(t, m, cmd)
-	if m.Search() != "x" {
-		t.Fatalf("search = %q", m.Search())
+	if m.ViewName() != ViewReviews || !strings.Contains(m.render(), "Fix login") {
+		t.Fatalf("review view =\n%s", m.render())
+	}
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	if m.ViewName() != ViewProjects {
+		t.Fatalf("back from reviews = %s", m.ViewName())
+	}
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	if m.ViewName() != ViewDashboard {
+		t.Fatalf("back from projects = %s", m.ViewName())
+	}
+
+	empty := New(Deps{
+		Settings:     config.Settings{Provider: "echo", Focus: []string{"bugs"}, MaxComments: 10},
+		LoadProjects: func(string) ([]review.Project, error) { return nil, nil },
+	})
+	empty, cmd = applyKey(empty, special(tea.KeyEnter))
+	empty = drain(t, empty, cmd)
+	if !strings.Contains(empty.render(), "no accessible projects") {
+		t.Fatalf("empty view =\n%s", empty.render())
+	}
+
+	failed := New(Deps{
+		Settings:     config.Settings{Provider: "echo", Focus: []string{"bugs"}, MaxComments: 10},
+		LoadProjects: func(string) ([]review.Project, error) { return nil, errors.New("network unavailable") },
+	})
+	failed, cmd = applyKey(failed, special(tea.KeyEnter))
+	failed = drain(t, failed, cmd)
+	if !strings.Contains(failed.render(), "network unavailable") {
+		t.Fatalf("failed view =\n%s", failed.render())
+	}
+	failed, cmd = applyKey(failed, key('r'))
+	if cmd == nil || failed.Status() != "" {
+		t.Fatalf("retry command=%v status=%q", cmd != nil, failed.Status())
+	}
+
+	reviewState := New(Deps{
+		Settings: config.Settings{Provider: "echo", Focus: []string{"bugs"}, MaxComments: 10},
+		LoadProjects: func(string) ([]review.Project, error) {
+			return []review.Project{{Platform: "gitlab", ID: "1", Path: "group/project"}}, nil
+		},
+		LoadReviews: func(string, review.Project) ([]review.ReviewSummary, error) {
+			return nil, errors.New("authorization failed")
+		},
+	})
+	reviewState, cmd = applyKey(reviewState, special(tea.KeyEnter))
+	reviewState = drain(t, reviewState, cmd)
+	reviewState, cmd = applyKey(reviewState, special(tea.KeyEnter))
+	if !strings.Contains(reviewState.render(), "loading merge requests") {
+		t.Fatalf("review loading view =\n%s", reviewState.render())
+	}
+	reviewState = drain(t, reviewState, cmd)
+	if !strings.Contains(reviewState.render(), "authorization failed") {
+		t.Fatalf("review error view =\n%s", reviewState.render())
 	}
 }
 
@@ -285,7 +348,6 @@ func TestAuthorizationFailuresStayOnAuthViewAndOfferRetry(t *testing.T) {
 func TestReviewErrorView(t *testing.T) {
 	m := New(Deps{
 		Settings: config.Settings{Provider: "echo", MaxComments: 10, Focus: []string{"bugs"}},
-		LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
 		RunReview: func(string, string, string, []string, int) (review.Result, review.Metadata, error) {
 			return review.Result{}, review.Metadata{}, errors.New("provider down")
 		},
@@ -346,7 +408,6 @@ func TestConfigPanelOpenEditSave(t *testing.T) {
 			Focus: []string{"bugs"}, MaxComments: 10,
 		},
 		StartView: ViewConfig,
-		LoadDash:  func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
 		SaveSettings: func(s config.Settings) error {
 			saved = s
 			return nil
@@ -395,7 +456,6 @@ func TestOnboardingRoutesIncompleteStateAndCompletesWithKeyboard(t *testing.T) {
 			Provider: "anthropic", GitHubAPI: "https://api.github.com", GitLabURL: "https://gitlab.com",
 			Focus: []string{"bugs"}, MaxComments: 10,
 		},
-		LoadDash:        func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
 		SaveSettings:    func(next config.Settings) error { saved = next; return nil },
 		CheckOnboarding: true,
 	})
@@ -469,12 +529,12 @@ func TestOnboardingBypassesCompleteSharedState(t *testing.T) {
 			PlatformFingerprint: platformFingerprint, PlatformValidatedAt: time.Now(),
 		},
 	}
-	m := New(Deps{Store: store, Settings: cfg, LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil }, CheckOnboarding: true})
+	m := New(Deps{Store: store, Settings: cfg, CheckOnboarding: true})
 	if m.ViewName() != ViewDashboard {
 		t.Fatalf("complete shared state view = %s", m.ViewName())
 	}
 	cfg.Onboarding.ProviderFingerprint = "stale"
-	m = New(Deps{Store: store, Settings: cfg, LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil }, CheckOnboarding: true})
+	m = New(Deps{Store: store, Settings: cfg, CheckOnboarding: true})
 	if m.ViewName() != ViewOnboarding {
 		t.Fatalf("stale shared credentials view = %s", m.ViewName())
 	}

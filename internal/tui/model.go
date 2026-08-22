@@ -28,6 +28,8 @@ const (
 	ViewError
 	ViewConfig
 	ViewOnboarding
+	ViewProjects
+	ViewReviews
 )
 
 func (v View) String() string {
@@ -50,6 +52,10 @@ func (v View) String() string {
 		return "config"
 	case ViewOnboarding:
 		return "onboarding"
+	case ViewProjects:
+		return "projects"
+	case ViewReviews:
+		return "reviews"
 	default:
 		return "unknown"
 	}
@@ -70,7 +76,6 @@ type inputMode int
 
 const (
 	inputNone inputMode = iota
-	inputSearch
 	inputURL
 	inputModel
 	inputEditComment
@@ -112,12 +117,13 @@ type Model struct {
 	cfg   config.Settings
 	store *auth.Store
 
-	// dashboard
-	search     string
-	groups     []review.ProjectMergeRequests
-	flat       []dashItem
-	cursor     int
-	dashLoaded bool
+	// browse
+	platform      string
+	projects      []review.Project
+	reviews       []review.ReviewSummary
+	project       review.Project
+	cursor        int
+	catalogLoaded bool
 
 	// configure / link
 	url      string
@@ -150,13 +156,14 @@ type Model struct {
 	authFailed  bool
 
 	// injectable for tests / wiring
-	loadDash   func(search string) ([]review.ProjectMergeRequests, error)
-	runReview  func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
-	postFn     func(result review.Result) error
-	loginFn    func(provider, method, secret string) (string, error)
-	beginOAuth func(provider string) (*auth.PendingLogin, error)
-	device     auth.DeviceConfig
-	saveFn     func(config.Settings) error
+	loadProjects func(platform string) ([]review.Project, error)
+	loadReviews  func(platform string, project review.Project) ([]review.ReviewSummary, error)
+	runReview    func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
+	postFn       func(result review.Result) error
+	loginFn      func(provider, method, secret string) (string, error)
+	beginOAuth   func(provider string) (*auth.PendingLogin, error)
+	device       auth.DeviceConfig
+	saveFn       func(config.Settings) error
 
 	// config panel
 	cfgField     configField
@@ -171,15 +178,17 @@ type Model struct {
 	onboardingPlatform string
 }
 
-type dashItem struct {
-	header bool
-	path   string
-	mr     review.MergeRequestSummary
+type projectsMsg struct {
+	platform string
+	projects []review.Project
+	err      error
 }
 
-type dashMsg struct {
-	groups []review.ProjectMergeRequests
-	err    error
+type reviewsMsg struct {
+	platform string
+	project  review.Project
+	reviews  []review.ReviewSummary
+	err      error
 }
 
 type reviewDoneMsg struct {
@@ -209,7 +218,8 @@ type deviceCodeMsg struct {
 type Deps struct {
 	Store           *auth.Store
 	Settings        config.Settings
-	LoadDash        func(search string) ([]review.ProjectMergeRequests, error)
+	LoadProjects    func(platform string) ([]review.Project, error)
+	LoadReviews     func(platform string, project review.Project) ([]review.ReviewSummary, error)
 	RunReview       func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
 	Post            func(result review.Result) error
 	Login           func(provider, method, secret string) (string, error)
@@ -235,7 +245,9 @@ func New(deps Deps) Model {
 		model:        cfg.Model,
 		focus:        append([]string{}, cfg.Focus...),
 		maxC:         cfg.MaxComments,
-		loadDash:     deps.LoadDash,
+		platform:     "gitlab",
+		loadProjects: deps.LoadProjects,
+		loadReviews:  deps.LoadReviews,
 		runReview:    deps.RunReview,
 		postFn:       deps.Post,
 		loginFn:      deps.Login,
@@ -246,6 +258,9 @@ func New(deps Deps) Model {
 		cfgGitLab:    cfg.GitLabURL,
 		cfgAnthropic: cfg.AnthropicURL,
 		authList:     append(auth.BuiltinProviders(), "gitlab", "github"),
+	}
+	if cfg.Onboarding.Platform == "github" || cfg.Onboarding.Platform == "gitlab" {
+		m.platform = cfg.Onboarding.Platform
 	}
 	if deps.StartView == ViewConfig {
 		m.view = ViewConfig
@@ -268,19 +283,30 @@ func New(deps Deps) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.fetchDash()
+	return nil
 }
 
 func (m Model) ViewName() View { return m.view }
 
-func (m Model) fetchDash() tea.Cmd {
-	if m.loadDash == nil {
+func (m Model) fetchProjects() tea.Cmd {
+	if m.loadProjects == nil {
 		return nil
 	}
-	search := m.search
+	platform := m.platform
 	return func() tea.Msg {
-		g, err := m.loadDash(search)
-		return dashMsg{groups: g, err: err}
+		projects, err := m.loadProjects(platform)
+		return projectsMsg{platform: platform, projects: projects, err: err}
+	}
+}
+
+func (m Model) fetchReviews() tea.Cmd {
+	if m.loadReviews == nil {
+		return nil
+	}
+	platform, project := m.platform, m.project
+	return func() tea.Msg {
+		reviews, err := m.loadReviews(platform, project)
+		return reviewsMsg{platform: platform, project: project, reviews: reviews, err: err}
 	}
 }
 
@@ -320,15 +346,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
-	case dashMsg:
-		if msg.err != nil {
-			m.status = msg.err.Error()
-			m.dashLoaded = true
+	case projectsMsg:
+		if msg.platform != m.platform || m.view != ViewProjects {
 			return m, nil
 		}
-		m.groups = msg.groups
-		m.rebuildFlat()
-		m.dashLoaded = true
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			m.catalogLoaded = true
+			return m, nil
+		}
+		m.projects = msg.projects
+		m.cursor = 0
+		m.catalogLoaded = true
+		m.status = ""
+		return m, nil
+	case reviewsMsg:
+		if msg.platform != m.platform || msg.project.ID != m.project.ID || m.view != ViewReviews {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			m.catalogLoaded = true
+			return m, nil
+		}
+		m.reviews = msg.reviews
+		m.cursor = 0
+		m.catalogLoaded = true
 		m.status = ""
 		return m, nil
 	case reviewDoneMsg:
@@ -418,8 +461,6 @@ func (m Model) handlePaste(s string) (tea.Model, tea.Cmd) {
 	switch m.input {
 	case inputURL:
 		m.url += s
-	case inputSearch:
-		m.search += s
 	case inputModel:
 		m.model += s
 	case inputEditComment, inputEditSummary:
@@ -452,6 +493,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.view {
 	case ViewDashboard:
 		return m.keysDashboard(msg)
+	case ViewProjects:
+		return m.keysProjects(msg)
+	case ViewReviews:
+		return m.keysReviews(msg)
 	case ViewLink:
 		return m.keysLink(msg)
 	case ViewReviewing:
@@ -492,8 +537,6 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.commitInput()
 	case tea.KeyBackspace:
 		switch m.input {
-		case inputSearch:
-			m.search = trimLast(m.search)
 		case inputURL:
 			m.url = trimLast(m.url)
 		case inputModel:
@@ -510,8 +553,6 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch m.input {
-	case inputSearch:
-		m.search += ch
 	case inputURL:
 		m.url += ch
 	case inputModel:
@@ -528,10 +569,6 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) commitInput() (tea.Model, tea.Cmd) {
 	switch m.input {
-	case inputSearch:
-		m.input = inputNone
-		m.cursor = 0
-		return m, m.fetchDash()
 	case inputURL, inputModel, inputConfig:
 		m.input = inputNone
 		return m, nil
@@ -611,9 +648,19 @@ func (m Model) keysDashboard(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEsc || keyText(msg) == "q":
 		return m, tea.Quit
-	case keyText(msg) == "/" || keyText(msg) == "s":
-		m.input = inputSearch
+	case msg.Code == tea.KeyTab:
+		if m.platform == "gitlab" {
+			m.platform = "github"
+		} else {
+			m.platform = "gitlab"
+		}
 		return m, nil
+	case msg.Code == tea.KeyEnter:
+		m.view = ViewProjects
+		m.cursor = 0
+		m.catalogLoaded = false
+		m.status = ""
+		return m, m.fetchProjects()
 	case keyText(msg) == "l":
 		m.view = ViewLink
 		m.field = fieldURL
@@ -629,27 +676,57 @@ func (m Model) keysDashboard(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.cfgGitLab = m.cfg.GitLabURL
 		m.cfgAnthropic = m.cfg.AnthropicURL
 		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) keysProjects(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEsc:
+		m.view = ViewDashboard
+	case keyText(msg) == "r":
+		m.catalogLoaded = false
+		m.status = ""
+		return m, m.fetchProjects()
 	case msg.Code == tea.KeyDown || keyText(msg) == "j":
-		if m.cursor < len(m.flat)-1 {
+		if m.cursor < len(m.projects)-1 {
 			m.cursor++
-			if m.flat[m.cursor].header && m.cursor < len(m.flat)-1 {
-				m.cursor++
-			}
 		}
 	case msg.Code == tea.KeyUp || keyText(msg) == "k":
 		if m.cursor > 0 {
 			m.cursor--
-			if m.flat[m.cursor].header && m.cursor > 0 {
-				m.cursor--
-			}
 		}
-	case msg.Code == tea.KeyEnter:
-		if m.cursor >= 0 && m.cursor < len(m.flat) && !m.flat[m.cursor].header {
-			m.url = m.flat[m.cursor].mr.WebURL
-			m.view = ViewLink
-			m.field = fieldURL
-			return m, nil
+	case msg.Code == tea.KeyEnter && m.catalogLoaded && m.status == "" && m.cursor < len(m.projects):
+		m.project = m.projects[m.cursor]
+		m.view = ViewReviews
+		m.cursor = 0
+		m.catalogLoaded = false
+		return m, m.fetchReviews()
+	}
+	return m, nil
+}
+
+func (m Model) keysReviews(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEsc:
+		m.view = ViewProjects
+		m.cursor = 0
+	case keyText(msg) == "r":
+		m.catalogLoaded = false
+		m.status = ""
+		return m, m.fetchReviews()
+	case msg.Code == tea.KeyDown || keyText(msg) == "j":
+		if m.cursor < len(m.reviews)-1 {
+			m.cursor++
 		}
+	case msg.Code == tea.KeyUp || keyText(msg) == "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case msg.Code == tea.KeyEnter && m.catalogLoaded && m.status == "" && m.cursor < len(m.reviews):
+		m.url = m.reviews[m.cursor].WebURL
+		m.view = ViewLink
+		m.field = fieldURL
 	}
 	return m, nil
 }
@@ -759,7 +836,7 @@ func (m Model) keysConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.view = ViewDashboard
 			m.url = ""
 			m.comments = nil
-			return m, m.fetchDash()
+			return m, nil
 		}
 	case "q":
 		return m, tea.Quit
@@ -768,7 +845,7 @@ func (m Model) keysConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.view = ViewDashboard
 		m.url = ""
 		m.comments = nil
-		return m, m.fetchDash()
+		return m, nil
 	}
 	return m, nil
 }
@@ -963,7 +1040,7 @@ func (m Model) finishPlatformOnboarding() (tea.Model, tea.Cmd) {
 	m.model = provider.DefaultModel(m.provider)
 	m.view = ViewDashboard
 	m.status = "onboarding complete"
-	return m, m.fetchDash()
+	return m, nil
 }
 
 func (m Model) providerFingerprint() (string, bool) {
@@ -1194,22 +1271,6 @@ func (m *Model) toggleFocus() {
 	}
 }
 
-func (m *Model) rebuildFlat() {
-	m.flat = m.flat[:0]
-	for _, g := range m.groups {
-		m.flat = append(m.flat, dashItem{header: true, path: g.ProjectPath})
-		for _, mr := range g.MergeRequests {
-			m.flat = append(m.flat, dashItem{mr: mr, path: g.ProjectPath})
-		}
-	}
-	if m.cursor >= len(m.flat) {
-		m.cursor = 0
-	}
-	if len(m.flat) > 0 && m.flat[m.cursor].header && m.cursor < len(m.flat)-1 {
-		m.cursor++
-	}
-}
-
 func keyText(msg tea.KeyPressMsg) string {
 	if msg.Text != "" {
 		return msg.Text
@@ -1248,7 +1309,6 @@ func (m Model) ApprovedCount() int {
 func (m Model) PostedCount() int        { return m.postedN }
 func (m Model) Error() string           { return m.err }
 func (m Model) Status() string          { return m.status }
-func (m Model) Search() string          { return m.search }
 func (m Model) ConfigGitHubAPI() string { return m.cfgGitHub }
 func (m Model) ConfigGitLabURL() string { return m.cfgGitLab }
 func (m Model) ConfigAnthropic() string { return m.cfgAnthropic }

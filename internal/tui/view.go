@@ -31,6 +31,10 @@ func (m Model) render() string {
 	switch m.view {
 	case ViewDashboard:
 		b.WriteString(m.viewDashboard())
+	case ViewProjects:
+		b.WriteString(m.viewProjects())
+	case ViewReviews:
+		b.WriteString(m.viewReviews())
 	case ViewLink:
 		b.WriteString(m.viewLink())
 	case ViewReviewing:
@@ -51,7 +55,7 @@ func (m Model) render() string {
 	case ViewError:
 		b.WriteString(errStyle.Render("  "+m.err) + "\n\n  enter back\n")
 	}
-	if m.status != "" && m.view != ViewReviewing && m.view != ViewError && !(m.view == ViewAuth && (m.authCancel != nil || m.authFailed)) {
+	if m.status != "" && m.view != ViewReviewing && m.view != ViewError && m.view != ViewProjects && m.view != ViewReviews && !(m.view == ViewAuth && (m.authCancel != nil || m.authFailed)) {
 		b.WriteString("\n")
 		b.WriteString(mutedStyle.Render("  " + m.status))
 		b.WriteString("\n")
@@ -61,23 +65,52 @@ func (m Model) render() string {
 
 func (m Model) viewDashboard() string {
 	var b strings.Builder
-	search := m.search
-	if m.input == inputSearch {
-		search = m.search + "█"
-	}
-	b.WriteString("  / " + search + "\n\n")
-	if !m.dashLoaded {
-		b.WriteString(mutedStyle.Render("  loading merge requests…") + "\n")
-	} else if len(m.flat) == 0 {
-		b.WriteString(mutedStyle.Render("  no open merge requests") + "\n")
+	b.WriteString("  Browse " + titleStyle.Render(strings.ToUpper(m.platform)) + "\n\n")
+	b.WriteString(mutedStyle.Render("  tab switch platform  enter projects  l link  c config  a auth  q quit"))
+	b.WriteString("\n")
+	return b.String()
+}
+
+func (m Model) viewProjects() string {
+	var b strings.Builder
+	b.WriteString("  " + titleStyle.Render(strings.ToUpper(m.platform)) + " projects\n\n")
+	if !m.catalogLoaded {
+		b.WriteString(mutedStyle.Render("  loading projects…") + "\n")
+	} else if m.status != "" {
+		b.WriteString(errStyle.Render("  "+m.status) + "\n")
+	} else if len(m.projects) == 0 {
+		b.WriteString(mutedStyle.Render("  no accessible projects") + "\n")
 	} else {
-		for i, item := range m.flat {
-			if item.header {
-				b.WriteString("\n  " + titleStyle.Render(item.path) + "\n")
-				continue
+		for i, project := range m.projects {
+			line := "  " + project.Path
+			if i == m.cursor {
+				b.WriteString(selStyle.Render(line) + "\n")
+			} else {
+				b.WriteString(line + "\n")
 			}
-			line := fmt.Sprintf("  !%-4d %s", item.mr.IID, item.mr.Title)
-			if item.mr.Draft {
+		}
+	}
+	b.WriteString("\n" + mutedStyle.Render("  j/k move  enter select  r retry  esc platform") + "\n")
+	return b.String()
+}
+
+func (m Model) viewReviews() string {
+	var b strings.Builder
+	kind := "merge requests"
+	if m.platform == "github" {
+		kind = "pull requests"
+	}
+	b.WriteString("  " + titleStyle.Render(m.project.Path) + " " + kind + "\n\n")
+	if !m.catalogLoaded {
+		b.WriteString(mutedStyle.Render("  loading "+kind+"…") + "\n")
+	} else if m.status != "" {
+		b.WriteString(errStyle.Render("  "+m.status) + "\n")
+	} else if len(m.reviews) == 0 {
+		b.WriteString(mutedStyle.Render("  no open "+kind) + "\n")
+	} else {
+		for i, review := range m.reviews {
+			line := fmt.Sprintf("  #%-4d %s", review.Number, review.Title)
+			if review.Draft {
 				line += "  draft"
 			}
 			if i == m.cursor {
@@ -87,9 +120,7 @@ func (m Model) viewDashboard() string {
 			}
 		}
 	}
-	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  j/k move  enter review  / search  l link  c config  a auth  q quit"))
-	b.WriteString("\n")
+	b.WriteString("\n" + mutedStyle.Render("  j/k move  enter configure review  r retry  esc projects") + "\n")
 	return b.String()
 }
 

@@ -18,7 +18,6 @@ import (
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/config"
-	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
 func tokenServer(t *testing.T, access string) *httptest.Server {
@@ -270,7 +269,6 @@ func TestUpdateOAuthPasteFinishesAndPersists(t *testing.T) {
 	m := New(Deps{
 		Store:    st,
 		Settings: config.Settings{Provider: "echo", Model: "echo", Focus: []string{"bugs"}, MaxComments: 10},
-		LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
 		BeginOAuth: func(provider string) (*auth.PendingLogin, error) {
 			if provider != "xai" {
 				t.Fatalf("provider = %s", provider)
@@ -334,7 +332,6 @@ func TestUpdateDeviceLoginPersists(t *testing.T) {
 	m := New(Deps{
 		Store:    st,
 		Settings: config.Settings{Provider: "echo", Focus: []string{"bugs"}, MaxComments: 10},
-		LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
 		Device:   auth.DeviceConfig{DeviceURL: srv.URL, TokenURL: srv.URL, ClientID: "c", Scope: "s"},
 	})
 	m = drain(t, m, m.Init())
@@ -378,7 +375,6 @@ func TestStartLoginLoopbackPersistsDespiteStubLogin(t *testing.T) {
 	m := New(Deps{
 		Store:    st,
 		Settings: config.Settings{Provider: "echo", Focus: []string{"bugs"}, MaxComments: 10},
-		LoadDash: func(string) ([]review.ProjectMergeRequests, error) { return nil, nil },
 		Login: func(provider, method, secret string) (string, error) {
 			t.Fatalf("loginFn must not persist oauth (got %s %s %s)", provider, method, secret)
 			return "FAKE", nil
