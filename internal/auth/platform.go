@@ -169,6 +169,24 @@ func ResolvePlatformCredential(ctx context.Context, target PlatformTarget, store
 	return store.refreshPlatform(ctx, normalized, cred)
 }
 
+// PlatformCredentialsAvailable reports whether a platform target has a locally
+// usable credential without refreshing or otherwise making a network request.
+func PlatformCredentialsAvailable(target PlatformTarget, store *Store) bool {
+	normalized, err := NewPlatformTarget(target.Platform, target.Origin, target.APIBase)
+	if err != nil {
+		return false
+	}
+	if normalized.IsPublicCloud() && osPlatformToken(normalized.Platform) != "" {
+		return true
+	}
+	if store == nil {
+		return false
+	}
+	credential, ok := store.GetPlatform(normalized)
+	return ok && credential.Token != "" &&
+		(credential.Type == PlatformPAT || credential.ExpiresAt.IsZero() || time.Until(credential.ExpiresAt) > 0)
+}
+
 func (s *Store) refreshPlatform(ctx context.Context, target PlatformTarget, cred PlatformCredential) (PlatformCredential, error) {
 	key := target.Key()
 	s.refreshMu.Lock()

@@ -59,6 +59,24 @@ func envNames(provider string) []string {
 
 func EnvNames(provider string) []string { return envNames(provider) }
 
+// CredentialsAvailable reports whether a provider has a locally usable credential.
+// Network validation is intentionally left to the client onboarding flow.
+func CredentialsAvailable(provider string, store *Store, extraEnv string) bool {
+	provider = canonicalProvider(provider)
+	if extraEnv != "" && os.Getenv(extraEnv) != "" {
+		return true
+	}
+	if _, ok := APIKey(provider, store); ok {
+		return true
+	}
+	if store == nil {
+		return false
+	}
+	credential, ok := store.Get(provider)
+	return ok && credential.Type == TypeOAuth && credential.Access != "" &&
+		(credential.ExpiresAt.IsZero() || time.Until(credential.ExpiresAt) > 0)
+}
+
 func freshOAuth(ctx context.Context, store *Store, provider string) (Credential, error) {
 	provider = canonicalProvider(provider)
 	if store == nil {
