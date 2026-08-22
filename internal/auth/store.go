@@ -47,6 +47,9 @@ func DefaultPath() string {
 	if p := strings.TrimSpace(os.Getenv("MR_REVIEWER_AUTH")); p != "" {
 		return p
 	}
+	if root := strings.TrimSpace(os.Getenv("MR_REVIEWER_HOME")); root != "" {
+		return filepath.Join(root, "auth.json")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), "mr-reviewer", "auth.json")

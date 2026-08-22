@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -167,6 +169,39 @@ func ResolvePlatformCredential(ctx context.Context, target PlatformTarget, store
 		return cred, nil
 	}
 	return store.refreshPlatform(ctx, normalized, cred)
+}
+
+// PlatformCredentialsAvailable reports whether a platform target has a locally
+// usable credential without refreshing or otherwise making a network request.
+func PlatformCredentialsAvailable(target PlatformTarget, store *Store) bool {
+	_, ok := PlatformCredentialFingerprint(target, store)
+	return ok
+}
+
+// PlatformCredentialFingerprint returns a stable, secret-free identifier for
+// the credential currently selected by normal platform resolution.
+func PlatformCredentialFingerprint(target PlatformTarget, store *Store) (string, bool) {
+	normalized, err := NewPlatformTarget(target.Platform, target.Origin, target.APIBase)
+	if err != nil {
+		return "", false
+	}
+	if token := osPlatformToken(normalized.Platform); normalized.IsPublicCloud() && token != "" {
+		return platformFingerprint(token), true
+	}
+	if store == nil {
+		return "", false
+	}
+	credential, ok := store.GetPlatform(normalized)
+	if !ok || credential.Token == "" ||
+		(credential.Type != PlatformPAT && !credential.ExpiresAt.IsZero() && time.Until(credential.ExpiresAt) <= 0) {
+		return "", false
+	}
+	return platformFingerprint(credential.Token), true
+}
+
+func platformFingerprint(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func (s *Store) refreshPlatform(ctx context.Context, target PlatformTarget, cred PlatformCredential) (PlatformCredential, error) {

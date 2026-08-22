@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/platform"
@@ -24,18 +25,45 @@ type Settings struct {
 	Focus               []string
 	MaxComments         int
 	Providers           ProvidersFile
+	Onboarding          OnboardingState
+}
+
+const OnboardingSchemaVersion = 1
+
+// OnboardingState is client-independent setup metadata. Credentials stay in
+// auth.Store or the environment and must never be added here.
+type OnboardingState struct {
+	SchemaVersion       int       `json:"schemaVersion,omitempty"`
+	Provider            string    `json:"provider,omitempty"`
+	ProviderFingerprint string    `json:"providerFingerprint,omitempty"`
+	Platform            string    `json:"platform,omitempty"`
+	PlatformOrigin      string    `json:"platformOrigin,omitempty"`
+	PlatformAPIBase     string    `json:"platformAPIBase,omitempty"`
+	PlatformFingerprint string    `json:"platformFingerprint,omitempty"`
+	ProviderValidatedAt time.Time `json:"providerValidatedAt,omitempty"`
+	PlatformValidatedAt time.Time `json:"platformValidatedAt,omitempty"`
+}
+
+type OnboardingStatus struct {
+	Complete bool
+	Reason   string
 }
 
 // fileSettings is the persisted subset of Settings.
 type fileSettings struct {
-	GitHubAPI    string `json:"githubAPI,omitempty"`
-	GitLabURL    string `json:"gitlabURL,omitempty"`
-	AnthropicURL string `json:"anthropicURL,omitempty"`
+	GitHubAPI    string           `json:"githubAPI,omitempty"`
+	GitLabURL    string           `json:"gitlabURL,omitempty"`
+	AnthropicURL string           `json:"anthropicURL,omitempty"`
+	Onboarding   *OnboardingState `json:"onboarding,omitempty"`
 }
 
 func Load() Settings {
 	file := readFileSettings()
 	pf := LoadProviders()
+	onboarding := OnboardingState{}
+	if file.Onboarding != nil {
+		onboarding = *file.Onboarding
+	}
 
 	githubAPI := "https://api.github.com"
 	if file.GitHubAPI != "" {
@@ -84,6 +112,7 @@ func Load() Settings {
 		Focus:               focus,
 		MaxComments:         maxC,
 		Providers:           pf,
+		Onboarding:          onboarding,
 	}
 }
 
@@ -105,16 +134,78 @@ func Save(s Settings) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	var onboarding *OnboardingState
+	if s.Onboarding != (OnboardingState{}) {
+		state := s.Onboarding
+		onboarding = &state
+	}
 	payload := fileSettings{
 		GitHubAPI:    strings.TrimRight(strings.TrimSpace(s.GitHubAPI), "/"),
 		GitLabURL:    strings.TrimRight(strings.TrimSpace(s.GitLabURL), "/"),
 		AnthropicURL: strings.TrimRight(strings.TrimSpace(s.AnthropicURL), "/"),
+		Onboarding:   onboarding,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(path, data, 0o600)
+}
+
+// SaveOnboarding persists shared onboarding metadata without exposing secrets.
+func SaveOnboarding(state OnboardingState) error {
+	settings := Load()
+	settings.Onboarding = state
+	return Save(settings)
+}
+
+// OnboardingStatus evaluates whether a client may enable reviews. Clients must
+// validate each integration before recording its corresponding timestamp.
+func (s Settings) OnboardingStatus(store *auth.Store) OnboardingStatus {
+	state := s.Onboarding
+	if state.SchemaVersion != OnboardingSchemaVersion {
+		return OnboardingStatus{Reason: "onboarding configuration is missing or out of date"}
+	}
+	provider := CanonicalProviderID(state.Provider)
+	if !s.onboardingProvider(provider) {
+		return OnboardingStatus{Reason: "select one supported AI provider"}
+	}
+	if state.ProviderValidatedAt.IsZero() {
+		return OnboardingStatus{Reason: "validate the selected AI provider"}
+	}
+	custom, isCustom := FindCustom(s.Providers.Customs, provider)
+	extraEnv := ""
+	if isCustom {
+		extraEnv = custom.APIKeyEnv
+	}
+	providerFingerprint, ok := auth.CredentialFingerprint(provider, store, extraEnv)
+	if !ok || state.ProviderFingerprint == "" || state.ProviderFingerprint != providerFingerprint {
+		return OnboardingStatus{Reason: "AI provider credentials are missing, expired, or changed"}
+	}
+	platform := strings.ToLower(strings.TrimSpace(state.Platform))
+	if platform != "github" && platform != "gitlab" {
+		return OnboardingStatus{Reason: "select one supported Git platform"}
+	}
+	if state.PlatformValidatedAt.IsZero() {
+		return OnboardingStatus{Reason: "validate the selected Git platform"}
+	}
+	target, err := auth.NewPlatformTarget(platform, state.PlatformOrigin, state.PlatformAPIBase)
+	platformFingerprint, ok := auth.PlatformCredentialFingerprint(target, store)
+	if err != nil || !ok || state.PlatformFingerprint == "" || state.PlatformFingerprint != platformFingerprint {
+		return OnboardingStatus{Reason: "Git platform credentials are missing, expired, or changed"}
+	}
+	return OnboardingStatus{Complete: true}
+}
+
+func (s Settings) onboardingProvider(name string) bool {
+	if name == "" || name == "echo" || name == "ollama" {
+		return false
+	}
+	if _, ok := BuiltinProviderNames[name]; ok {
+		return true
+	}
+	_, ok := FindCustom(s.Providers.Customs, name)
+	return ok
 }
 
 func (s Settings) PlatformFor(info review.Info, store *auth.Store) (review.Platform, error) {

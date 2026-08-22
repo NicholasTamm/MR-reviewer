@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/platform"
@@ -253,6 +254,109 @@ func TestSaveLoadEnvOverFile(t *testing.T) {
 	}
 	if s.GitLabURL != "https://gitlab.example" {
 		t.Fatalf("gitlab file value lost: %q", s.GitLabURL)
+	}
+}
+
+func TestOnboardingStatusUsesSharedConfigurationAndCredentials(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status := Load().OnboardingStatus(store); status.Complete {
+		t.Fatalf("empty onboarding status = %+v", status)
+	}
+	target, err := auth.PublicTarget("github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("anthropic", auth.Credential{Type: auth.TypeAPIKey, APIKey: "provider-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "platform-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	providerFingerprint, ok := auth.CredentialFingerprint("anthropic", store, "")
+	if !ok {
+		t.Fatal("provider credential fingerprint unavailable")
+	}
+	platformFingerprint, ok := auth.PlatformCredentialFingerprint(target, store)
+	if !ok {
+		t.Fatal("platform credential fingerprint unavailable")
+	}
+	state := OnboardingState{
+		SchemaVersion:       OnboardingSchemaVersion,
+		Provider:            "anthropic",
+		ProviderFingerprint: providerFingerprint,
+		Platform:            target.Platform,
+		PlatformOrigin:      target.Origin,
+		PlatformAPIBase:     target.APIBase,
+		PlatformFingerprint: platformFingerprint,
+		ProviderValidatedAt: time.Now().UTC(),
+		PlatformValidatedAt: time.Now().UTC(),
+	}
+	if err := SaveOnboarding(state); err != nil {
+		t.Fatal(err)
+	}
+	status := Load().OnboardingStatus(store)
+	if !status.Complete {
+		t.Fatalf("onboarding status = %+v", status)
+	}
+	if err := store.DeletePlatform(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	if status := Load().OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "credentials") {
+		t.Fatalf("missing platform status = %+v", status)
+	}
+	raw, err := os.ReadFile(ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "provider-secret") || strings.Contains(string(raw), "platform-secret") {
+		t.Fatalf("config persisted a credential: %s", raw)
+	}
+}
+
+func TestOnboardingStatusBlocksExpiredOrUnvalidatedCredentials(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := auth.PublicTarget("github")
+	state := OnboardingState{
+		SchemaVersion:       OnboardingSchemaVersion,
+		Provider:            "openai",
+		ProviderFingerprint: "old-fingerprint",
+		Platform:            "github",
+		PlatformOrigin:      target.Origin,
+		PlatformAPIBase:     target.APIBase,
+		PlatformFingerprint: "platform-fingerprint",
+		ProviderValidatedAt: time.Now().UTC(),
+		PlatformValidatedAt: time.Now().UTC(),
+	}
+	if err := store.Set("openai", auth.Credential{Type: auth.TypeOAuth, Access: "expired", ExpiresAt: time.Now().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "token"}); err != nil {
+		t.Fatal(err)
+	}
+	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "credentials") {
+		t.Fatalf("expired provider status = %+v", status)
+	}
+	if err := store.Set("openai", auth.Credential{Type: auth.TypeAPIKey, APIKey: "replacement"}); err != nil {
+		t.Fatal(err)
+	}
+	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "changed") {
+		t.Fatalf("changed provider status = %+v", status)
+	}
+	state.ProviderValidatedAt = time.Time{}
+	if status := (Settings{Onboarding: state}).OnboardingStatus(store); status.Complete || !strings.Contains(status.Reason, "validate") {
+		t.Fatalf("unvalidated provider status = %+v", status)
 	}
 }
 
