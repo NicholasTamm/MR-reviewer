@@ -114,6 +114,27 @@ func TestPlatformSwitchIsScopedToBrowseEntry(t *testing.T) {
 	}
 }
 
+func TestBrowseIgnoresStaleCatalogResponses(t *testing.T) {
+	m := testModel(t)
+	m, firstProjects := applyKey(m, special(tea.KeyEnter))
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	m, _ = applyKey(m, special(tea.KeyTab))
+	m, secondProjects := applyKey(m, special(tea.KeyEnter))
+	m = drain(t, m, secondProjects)
+	m = drain(t, m, firstProjects)
+	if m.ViewName() != ViewProjects || m.projects[0].Platform != "github" {
+		t.Fatalf("stale project response replaced active selection: platform=%q request=%d view=%s", m.projects[0].Platform, m.catalogRequest, m.ViewName())
+	}
+
+	m, firstReviews := applyKey(m, special(tea.KeyEnter))
+	m, secondReviews := applyKey(m, key('r'))
+	m = drain(t, m, secondReviews)
+	m = drain(t, m, firstReviews)
+	if m.ViewName() != ViewReviews || m.catalogRequest != 4 {
+		t.Fatalf("stale review response replaced active request: view=%s request=%d", m.ViewName(), m.catalogRequest)
+	}
+}
+
 func TestBrowseBackNavigationAndCatalogStates(t *testing.T) {
 	m := testModel(t)
 	m, cmd := applyKey(m, special(tea.KeyEnter))
