@@ -178,6 +178,7 @@ Usage:
   mr-reviewer                         start the TUI
   mr-reviewer --config                open the settings panel
   mr-reviewer review <url> [flags]    headless review (JSON on stdout)
+  mr-reviewer serve [--host 127.0.0.1] [--port 8080]
   mr-reviewer auth login <provider> [--api-key [TOKEN]] [--device]
   mr-reviewer auth status
   mr-reviewer auth logout <provider>

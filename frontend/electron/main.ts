@@ -45,9 +45,8 @@ async function loadRuntimeSettings(): Promise<void> {
   catch { runtimeSettings = {}; }
 }
 
-async function getBackendEnv(): Promise<NodeJS.ProcessEnv> {
-  const entries = await Promise.all([...credentialKeys].map(async (key) => [key, await keytar.getPassword(keytarService, key)] as const));
-  return { ...process.env, ...runtimeSettings, ...Object.fromEntries(entries.filter(([, value]) => value)), MR_REVIEWER_TOKEN: authToken };
+function getBackendEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, MR_REVIEWER_TOKEN: authToken };
 }
 
 function waitForBackend(port: number, timeoutMs = 30_000): Promise<void> {
@@ -76,19 +75,23 @@ function waitForBackend(port: number, timeoutMs = 30_000): Promise<void> {
   });
 }
 
+function backendCommand(port: number): { executable: string; args: string[]; cwd: string } {
+  const serveArgs = ["serve", "--host", "127.0.0.1", "--port", String(port)];
+  if (app.isPackaged) {
+    const name = process.platform === "win32" ? "mr-reviewer-server.exe" : "mr-reviewer-server";
+    return { executable: path.join(process.resourcesPath, "backend", name), args: serveArgs, cwd: process.resourcesPath };
+  }
+  return { executable: "go", args: ["run", "./cmd/mr-reviewer", ...serveArgs], cwd: path.resolve(moduleDir, "../..") };
+}
+
 async function ensureBackend(): Promise<void> {
   if (backendProcess && backendPort) return;
 
   backendPort = await findFreePort();
-  const executable = app.isPackaged
-    ? path.join(process.resourcesPath, "backend", process.platform === "win32" ? "mr-reviewer-server.exe" : "mr-reviewer-server")
-    : "python";
-  const args = app.isPackaged
-    ? ["--serve", "--host", "127.0.0.1", "--port", String(backendPort)]
-    : ["-m", "mr_reviewer", "--serve", "--host", "127.0.0.1", "--port", String(backendPort), "--verbose"];
+  const { executable, args, cwd } = backendCommand(backendPort);
   backendProcess = spawn(executable, args, {
-      cwd: app.isPackaged ? process.resourcesPath : path.resolve(moduleDir, "../.."),
-      env: await getBackendEnv(),
+      cwd,
+      env: getBackendEnv(),
       stdio: "pipe",
     });
   backendProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(`[backend] ${data}`));
@@ -101,7 +104,7 @@ async function ensureBackend(): Promise<void> {
     }
   });
 
-  await waitForBackend(backendPort);
+  await waitForBackend(backendPort, app.isPackaged ? 30_000 : 60_000);
 }
 
 async function createWindow(): Promise<void> {
