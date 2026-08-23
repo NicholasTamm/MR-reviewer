@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/jonathanung/mr-reviewer/internal/cli"
 	"github.com/jonathanung/mr-reviewer/internal/tui"
@@ -25,6 +27,10 @@ func run(args []string) int {
 	switch args[0] {
 	case "review":
 		return cli.RunReview(context.Background(), args[1:], os.Stdout, os.Stderr)
+	case "serve":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return cli.RunServe(ctx, args[1:], os.Stdout, os.Stderr)
 	case "auth":
 		return cli.RunAuth(args[1:], os.Stdout, os.Stderr)
 	case "--config", "config":

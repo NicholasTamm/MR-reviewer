@@ -24,6 +24,40 @@ func TestConfigArgvIsRecognized(t *testing.T) {
 	}
 }
 
+func TestServeArgvIsRecognized(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `"serve"`) || !strings.Contains(string(src), "RunServe") {
+		t.Fatal("main must recognize serve")
+	}
+}
+
+func TestElectronSpawnsGoServe(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "frontend", "electron", "main.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	if strings.Contains(text, `"python"`) || strings.Contains(text, "-m") && strings.Contains(text, "mr_reviewer") {
+		t.Fatal("electron must not start a Python process")
+	}
+	if !strings.Contains(text, `"serve"`) || !strings.Contains(text, "127.0.0.1") {
+		t.Fatal("electron must spawn mr-reviewer serve on 127.0.0.1")
+	}
+	script, err := os.ReadFile(filepath.Join("..", "..", "scripts", "build-backend.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(script), "PyInstaller") || strings.Contains(string(script), "python") {
+		t.Fatal("packaging must build the Go binary")
+	}
+	if !strings.Contains(string(script), "go build") {
+		t.Fatal("packaging must invoke go build")
+	}
+}
+
 func TestRunUnknown(t *testing.T) {
 	if code := run([]string{"nope"}); code == 0 {
 		t.Fatal("expected non-zero")

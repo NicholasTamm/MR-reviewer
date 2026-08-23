@@ -196,7 +196,7 @@ func TestParseReviewArgsErrorsAndEquals(t *testing.T) {
 
 func TestUsageMentionsHeadless(t *testing.T) {
 	u := Usage()
-	if !strings.Contains(u, "review <url>") || !strings.Contains(u, "--dry-run") || !strings.Contains(u, "--config") {
+	if !strings.Contains(u, "review <url>") || !strings.Contains(u, "--dry-run") || !strings.Contains(u, "--config") || !strings.Contains(u, "serve") {
 		t.Fatalf("%s", u)
 	}
 	_ = os.Stdout
