@@ -24,6 +24,8 @@ type Settings struct {
 	Model               string
 	Focus               []string
 	MaxComments         int
+	Parallel            bool
+	ParallelThreshold   int
 	Providers           ProvidersFile
 	Onboarding          OnboardingState
 }
@@ -102,6 +104,12 @@ func Load() Settings {
 			maxC = n
 		}
 	}
+	threshold := 10
+	if v := os.Getenv("MR_REVIEWER_PARALLEL_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			threshold = n
+		}
+	}
 	return Settings{
 		GitLabURL:           strings.TrimRight(gitlabURL, "/"),
 		GitHubAPI:           strings.TrimRight(githubAPI, "/"),
@@ -111,6 +119,8 @@ func Load() Settings {
 		Model:               os.Getenv("MR_REVIEWER_MODEL"),
 		Focus:               focus,
 		MaxComments:         maxC,
+		Parallel:            truthy(os.Getenv("MR_REVIEWER_PARALLEL")),
+		ParallelThreshold:   threshold,
 		Providers:           pf,
 		Onboarding:          onboarding,
 	}
@@ -244,6 +254,18 @@ func (s Settings) GitLabBrowser(store *auth.Store) (*platform.GitLab, error) {
 		return nil, err
 	}
 	return &platform.GitLab{BaseURL: target.Origin, Credentials: auth.PlatformCredentialSource(target, store)}, nil
+}
+
+func (s Settings) GitHubBrowser(store *auth.Store) (*platform.GitHub, error) {
+	origin := "https://github.com"
+	if s.Onboarding.Platform == "github" && s.Onboarding.PlatformOrigin != "" {
+		origin = s.Onboarding.PlatformOrigin
+	}
+	target, err := auth.NewPlatformTarget("github", origin, s.GitHubAPI)
+	if err != nil {
+		return nil, err
+	}
+	return &platform.GitHub{BaseURL: target.APIBase, Credentials: auth.PlatformCredentialSource(target, store)}, nil
 }
 
 func (s Settings) NewProvider(name, model string, store *auth.Store) (review.Provider, error) {

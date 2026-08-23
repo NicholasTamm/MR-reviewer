@@ -202,6 +202,25 @@ func TestRunRequiresProviderAndPlatform(t *testing.T) {
 	}
 }
 
+func TestRunParallelUsesMultipleAgents(t *testing.T) {
+	var files []DiffFile
+	for i := 0; i < 4; i++ {
+		name := "f" + string(rune('0'+i)) + ".py"
+		files = append(files, DiffFile{OldPath: name, NewPath: name, Diff: "@@ -1 +1 @@\n-old\n+new\n"})
+	}
+	plat := &fakePlatform{fetch: FetchResult{DiffFiles: files, Metadata: Metadata{Title: "p", SourceBranch: "f"}}}
+	prov := &fakeProvider{result: Result{Summary: "ok"}}
+	_, err := Run(context.Background(), Options{
+		URL: "https://github.com/owner/repo/pull/1", Provider: prov, Platform: plat, DryRun: true, Parallel: true, ParallelThreshold: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prov.calls < 2 {
+		t.Fatalf("calls = %d", prov.calls)
+	}
+}
+
 func TestRunInvalidURL(t *testing.T) {
 	_, err := Run(context.Background(), Options{
 		URL: "https://example.com/not-a-pr", Provider: &fakeProvider{}, Platform: &fakePlatform{},

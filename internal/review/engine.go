@@ -20,23 +20,42 @@ type Platform interface {
 
 // Options configure a single review run.
 type Options struct {
-	URL         string
-	Provider    Provider
-	Platform    Platform
-	Focus       []string
-	MaxComments int
-	DryRun      bool
+	URL               string
+	Provider          Provider
+	Platform          Platform
+	Focus             []string
+	MaxComments       int
+	DryRun            bool
+	Parallel          bool
+	ParallelThreshold int
+	Progress          func(status, message string)
+}
+
+// Outcome is a review plus the data needed to post later.
+type Outcome struct {
+	Info      Info
+	Result    Result
+	DiffLines []DiffLine
 }
 
 // Run parses the URL, fetches the diff and file contents, asks the provider
 // for a review, drops off-diff comments, enforces the comment budget, and
 // either dry-runs or posts.
 func Run(ctx context.Context, opts Options) (Result, error) {
+	out, err := Execute(ctx, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	return out.Result, nil
+}
+
+// Execute is Run without discarding Info and DiffLines.
+func Execute(ctx context.Context, opts Options) (Outcome, error) {
 	if opts.Provider == nil {
-		return Result{}, fmt.Errorf("review provider is required")
+		return Outcome{}, fmt.Errorf("review provider is required")
 	}
 	if opts.Platform == nil {
-		return Result{}, fmt.Errorf("platform client is required")
+		return Outcome{}, fmt.Errorf("platform client is required")
 	}
 	maxComments := opts.MaxComments
 	if maxComments <= 0 {
@@ -47,22 +66,33 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		focus = DefaultFocus
 	}
 
-	info, err := Parse(opts.URL)
-	if err != nil {
-		return Result{}, err
+	progress := opts.Progress
+	if progress == nil {
+		progress = func(string, string) {}
 	}
 
+	progress("fetching", "Parsing URL...")
+	info, err := Parse(opts.URL)
+	if err != nil {
+		return Outcome{}, err
+	}
+
+	progress("fetching", "Fetching MR changes...")
 	fetched, err := opts.Platform.FetchChanges(ctx, info)
 	if err != nil {
-		return Result{}, err
+		return Outcome{}, err
 	}
 	if len(fetched.DiffFiles) == 0 {
-		return Result{Summary: "No changes found in this MR.", Comments: []Comment{}, Meta: fetched.Metadata}, nil
+		return Outcome{
+			Info:   info,
+			Result: Result{Summary: "No changes found in this MR.", Comments: []Comment{}, Meta: fetched.Metadata},
+		}, nil
 	}
 
 	unified := BuildUnifiedDiff(fetched.DiffFiles)
 	diffLines := ParseDiff(unified)
 
+	progress("fetching", fmt.Sprintf("Fetching contents for %d files...", len(fetched.DiffFiles)))
 	fileContents := map[string]string{}
 	ref := fetched.Metadata.SourceBranch
 	if ref == "" {
@@ -71,19 +101,28 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	for _, path := range ChangedPaths(unified) {
 		content, ok, err := opts.Platform.FetchFile(ctx, info, path, ref)
 		if err != nil {
-			return Result{}, err
+			return Outcome{}, err
 		}
 		if ok {
 			fileContents[path] = content
 		}
 	}
 
-	system := SystemPrompt(focus, maxComments)
-	user := UserMessage(fetched.Metadata.Title, fetched.Metadata.Description, AnnotateDiff(unified), fileContents)
-
-	raw, err := opts.Provider.Review(ctx, system, user)
+	progress("reviewing", "Running AI review...")
+	threshold := opts.ParallelThreshold
+	if threshold <= 0 {
+		threshold = 10
+	}
+	var raw Result
+	if opts.Parallel && len(fetched.DiffFiles) >= threshold {
+		raw, err = ParallelReview(ctx, opts.Provider, fetched.DiffFiles, fileContents, focus, fetched.Metadata, defaultParallelAgents, maxComments)
+	} else {
+		system := SystemPrompt(focus, maxComments)
+		user := UserMessage(fetched.Metadata.Title, fetched.Metadata.Description, AnnotateDiff(unified), fileContents)
+		raw, err = opts.Provider.Review(ctx, system, user)
+	}
 	if err != nil {
-		return Result{}, err
+		return Outcome{}, err
 	}
 
 	var valid []Comment
@@ -98,15 +137,16 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		valid = append(valid, c)
 	}
 	valid = EnforceBudget(valid, maxComments)
-	out := Result{Summary: raw.Summary, Comments: valid, Meta: fetched.Metadata}
-	if out.Comments == nil {
-		out.Comments = []Comment{}
+	result := Result{Summary: raw.Summary, Comments: valid, Meta: fetched.Metadata}
+	if result.Comments == nil {
+		result.Comments = []Comment{}
 	}
 
 	if !opts.DryRun {
-		if err := opts.Platform.PostReview(ctx, info, out, diffLines); err != nil {
-			return Result{}, err
+		progress("reviewing", "Posting review...")
+		if err := opts.Platform.PostReview(ctx, info, result, diffLines); err != nil {
+			return Outcome{}, err
 		}
 	}
-	return out, nil
+	return Outcome{Info: info, Result: result, DiffLines: diffLines}, nil
 }

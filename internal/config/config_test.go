@@ -41,8 +41,8 @@ func TestLoadDefaults(t *testing.T) {
 	if s.AllowInsecureGitLab || s.Provider != "anthropic" || s.Model != "" {
 		t.Fatalf("defaults = %+v", s)
 	}
-	if s.MaxComments != 10 {
-		t.Fatalf("max = %d", s.MaxComments)
+	if s.MaxComments != 10 || s.Parallel || s.ParallelThreshold != 10 {
+		t.Fatalf("max/parallel = %+v", s)
 	}
 	if strings.Join(s.Focus, ",") != strings.Join(review.DefaultFocus, ",") {
 		t.Fatalf("focus = %v", s.Focus)
@@ -58,6 +58,8 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("MR_REVIEWER_MODEL", "gpt-4o")
 	t.Setenv("MR_REVIEWER_FOCUS", " security , bugs ")
 	t.Setenv("MR_REVIEWER_MAX_COMMENTS", "7")
+	t.Setenv("MR_REVIEWER_PARALLEL", "true")
+	t.Setenv("MR_REVIEWER_PARALLEL_THRESHOLD", "4")
 	s := Load()
 	if s.GitLabURL != "https://git.example.com" || s.GitHubAPI != "https://github.example/api" {
 		t.Fatalf("trimmed urls = %+v", s)
@@ -65,8 +67,8 @@ func TestLoadFromEnv(t *testing.T) {
 	if !s.AllowInsecureGitLab || s.Provider != "openai" || s.Model != "gpt-4o" {
 		t.Fatalf("env = %+v", s)
 	}
-	if s.MaxComments != 7 {
-		t.Fatalf("max = %d", s.MaxComments)
+	if s.MaxComments != 7 || !s.Parallel || s.ParallelThreshold != 4 {
+		t.Fatalf("max/parallel = %+v", s)
 	}
 	if len(s.Focus) != 2 || s.Focus[0] != "security" || s.Focus[1] != "bugs" {
 		t.Fatalf("focus = %v", s.Focus)
@@ -181,6 +183,21 @@ func TestPlatformForUsesStoreToken(t *testing.T) {
 	}
 	if got, err := p.(*platform.GitHub).Credentials(context.Background()); err != nil || got.Token != "stored-gh" {
 		t.Fatalf("credential = %+v err=%v", got, err)
+	}
+}
+
+func TestGitHubBrowserUsesAPIAndStore(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv("GITHUB_TOKEN", "ghp-test")
+	t.Setenv("MR_REVIEWER_GITHUB_API", "https://ghe.example/api")
+	s := Load()
+	st, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh, err := s.GitHubBrowser(st)
+	if err != nil || gh.Credentials == nil || gh.BaseURL != "https://ghe.example/api" {
+		t.Fatalf("gh=%+v err=%v", gh, err)
 	}
 }
 
