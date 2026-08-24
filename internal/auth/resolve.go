@@ -81,6 +81,9 @@ func CredentialFingerprint(provider string, store *Store, extraEnv string) (stri
 	if store == nil {
 		return "", false
 	}
+	if provider == "openai" {
+		return "", false
+	}
 	credential, ok := store.Get(provider)
 	if !ok || credential.Type != TypeOAuth || credential.Access == "" ||
 		(!credential.ExpiresAt.IsZero() && time.Until(credential.ExpiresAt) <= 0) {
@@ -126,6 +129,25 @@ func freshOAuth(ctx context.Context, store *Store, provider string) (Credential,
 	return cred, nil
 }
 
+func openAIAPIKey(ctx context.Context, store *Store) (string, error) {
+	cred, err := freshOAuth(ctx, store, "openai")
+	if err != nil {
+		return "", fmt.Errorf("OpenAI requires a standard API key: set OPENAI_API_KEY or run `mr-reviewer auth login openai` again")
+	}
+	if cred.IDToken == "" {
+		return "", fmt.Errorf("OpenAI OAuth credentials have no ID token to exchange; run `mr-reviewer auth login openai` again")
+	}
+	key, err := exchangeOpenAIAPIKey(ctx, cred.IDToken)
+	if err != nil {
+		return "", fmt.Errorf("OpenAI OAuth credentials could not obtain a standard API key; run `mr-reviewer auth login openai` again: %w", err)
+	}
+	cred.APIKey = key
+	if err := store.Set("openai", cred); err != nil {
+		return "", fmt.Errorf("persisting exchanged OpenAI API key: %w", err)
+	}
+	return key, nil
+}
+
 func BearerSourceEnv(provider string, store *Store, envName string) func(ctx context.Context) (string, error) {
 	provider = canonicalProvider(provider)
 	return func(ctx context.Context) (string, error) {
@@ -136,6 +158,9 @@ func BearerSourceEnv(provider string, store *Store, envName string) func(ctx con
 		}
 		if key, ok := APIKey(provider, store); ok {
 			return key, nil
+		}
+		if provider == "openai" {
+			return openAIAPIKey(ctx, store)
 		}
 		cred, err := freshOAuth(ctx, store, provider)
 		if err != nil {
@@ -154,6 +179,9 @@ func BearerSource(provider string, store *Store) func(ctx context.Context) (stri
 	return func(ctx context.Context) (string, error) {
 		if key, ok := APIKey(provider, store); ok {
 			return key, nil
+		}
+		if provider == "openai" {
+			return openAIAPIKey(ctx, store)
 		}
 		cred, err := freshOAuth(ctx, store, provider)
 		if err != nil {

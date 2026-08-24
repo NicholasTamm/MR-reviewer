@@ -156,7 +156,13 @@ func (s *liveSession) loadModels(name string) provider.Models {
 		extra = endpoint.APIKeyEnv
 	}
 	key := ""
-	if name == "ollama" || auth.CredentialsAvailable(name, s.store, extra) {
+	if name == "openai" {
+		got, err := auth.BearerSourceEnv(name, s.store, extra)(context.Background())
+		if err != nil {
+			return provider.Unavailable(name, err.Error())
+		}
+		key = got
+	} else if name == "ollama" || auth.CredentialsAvailable(name, s.store, extra) {
 		if name != "ollama" {
 			got, err := auth.BearerSourceEnv(name, s.store, extra)(context.Background())
 			if err == nil {

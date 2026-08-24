@@ -65,7 +65,7 @@ func TestCompleteLoginXAI(t *testing.T) {
 	}
 }
 
-func TestCompleteLoginOpenAISubscriptionAndExchange(t *testing.T) {
+func TestCompleteLoginOpenAIAccountAndExchange(t *testing.T) {
 	var sawExchange bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -93,7 +93,7 @@ func TestCompleteLoginOpenAISubscriptionAndExchange(t *testing.T) {
 	if !sawExchange {
 		t.Fatal("expected exchange")
 	}
-	if !strings.Contains(msg, "ChatGPT subscription mode") {
+	if !strings.Contains(msg, "ChatGPT account detected") || !strings.Contains(msg, "ready for API-backed reviews") {
 		t.Errorf("msg = %q", msg)
 	}
 	cred, ok := st.Get("openai")

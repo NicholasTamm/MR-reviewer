@@ -404,6 +404,55 @@ func TestDiscoverOneUsesLiveOpenAICatalog(t *testing.T) {
 	}
 }
 
+func TestDiscoverOneOpenAIOAuthUsesExchangedAPIKey(t *testing.T) {
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("openai", auth.Credential{Type: auth.TypeOAuth, Access: "chatgpt-oauth-token", APIKey: "exchanged-key"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer exchanged-key" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "gpt-live"}}})
+	}))
+	defer srv.Close()
+
+	settings := config.Settings{Providers: config.ProvidersFile{Endpoints: map[string]config.ProviderEndpoint{
+		"openai": {BaseURL: srv.URL},
+	}}}
+	got := discoverOne(context.Background(), settings, store, srv.Client(), "openai")
+	if !got.Available || len(got.Models) != 1 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestDiscoverOneOpenAIOAuthWithoutAPIKeyDoesNotCallCatalog(t *testing.T) {
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("openai", auth.Credential{Type: auth.TypeOAuth, Access: "chatgpt-oauth-token"}); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		t.Fatalf("catalog request used OAuth token: %q", r.Header.Get("Authorization"))
+	}))
+	defer srv.Close()
+
+	settings := config.Settings{Providers: config.ProvidersFile{Endpoints: map[string]config.ProviderEndpoint{
+		"openai": {BaseURL: srv.URL},
+	}}}
+	got := discoverOne(context.Background(), settings, store, srv.Client(), "openai")
+	if called || got.Available || !strings.Contains(got.Error, "run `mr-reviewer auth login openai` again") {
+		t.Fatalf("called=%v catalog=%+v", called, got)
+	}
+}
+
 func TestGitLabCatalog(t *testing.T) {
 	h := testServer(t, nil, nil).Handler()
 	resp := doJSON(t, h, http.MethodGet, "/api/gitlab/projects", "", nil)

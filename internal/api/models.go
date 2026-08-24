@@ -27,7 +27,13 @@ func discoverOne(ctx context.Context, settings config.Settings, store *auth.Stor
 		customModels = custom.Models
 	}
 	key := ""
-	if name == "ollama" || auth.CredentialsAvailable(name, store, extraEnv(settings, name)) {
+	if name == "openai" {
+		var err error
+		key, err = catalogKey(ctx, name, settings, store)
+		if err != nil {
+			return provider.Unavailable(name, err.Error())
+		}
+	} else if name == "ollama" || auth.CredentialsAvailable(name, store, extraEnv(settings, name)) {
 		var err error
 		key, err = catalogKey(ctx, name, settings, store)
 		if err != nil && name != "ollama" {

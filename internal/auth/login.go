@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"os"
 )
+
+var exchangeOpenAIAPIKey = OpenAIExchangeAPIKey
 
 func CompleteLogin(ctx context.Context, store *Store, provider string, tokens *Tokens) (string, error) {
 	cred := Credential{
@@ -15,20 +18,24 @@ func CompleteLogin(ctx context.Context, store *Store, provider string, tokens *T
 	}
 	message := "Logged in to " + provider
 	if provider == "openai" {
+		if tokens.IDToken == "" {
+			return "", fmt.Errorf("OpenAI login did not return an ID token needed to obtain an API key; use `mr-reviewer auth login openai --api-key` or try signing in again")
+		}
 		cred.AccountID = AccountIDFromToken(tokens.IDToken)
 		if cred.AccountID == "" {
 			cred.AccountID = AccountIDFromToken(tokens.Access)
 		}
 		if cred.AccountID != "" {
-			message += " (ChatGPT subscription mode)"
+			message += " (ChatGPT account detected)"
 		}
-		if tokens.IDToken != "" {
-			if key, err := OpenAIExchangeAPIKey(ctx, tokens.IDToken); err == nil {
-				cred.APIKey = key
-			}
+		key, err := exchangeOpenAIAPIKey(ctx, tokens.IDToken)
+		if err != nil {
+			return "", fmt.Errorf("OpenAI login could not obtain an API key for API-backed reviews; use `mr-reviewer auth login openai --api-key` or sign in again: %w", err)
 		}
+		cred.APIKey = key
+		message += " (ready for API-backed reviews)"
 		if cred.AccountID == "" {
-			message += " — warning: no ChatGPT account id in tokens; subscription mode unavailable"
+			message += "; warning: no ChatGPT account id in tokens"
 		}
 	}
 	if err := store.Set(provider, cred); err != nil {

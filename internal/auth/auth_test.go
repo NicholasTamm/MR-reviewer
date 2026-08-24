@@ -3,6 +3,9 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -183,6 +186,94 @@ func TestBearerSourcePrecedence(t *testing.T) {
 	t.Setenv("XAI_API_KEY", "env-key")
 	if got, _ := BearerSource("xai", st)(ctx); got != "env-key" {
 		t.Errorf("bearer = %q", got)
+	}
+}
+
+func TestCompleteOpenAILoginPersistsExchangedAPIKey(t *testing.T) {
+	st, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := exchangeOpenAIAPIKey
+	exchangeOpenAIAPIKey = func(context.Context, string) (string, error) { return "exchanged-key", nil }
+	t.Cleanup(func() { exchangeOpenAIAPIKey = previous })
+
+	message, err := CompleteLogin(context.Background(), st, "openai", &Tokens{Access: "oauth-access", Refresh: "refresh", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)})
+	if err != nil || !strings.Contains(message, "ready for API-backed reviews") {
+		t.Fatalf("message=%q err=%v", message, err)
+	}
+	credential, ok := st.Get("openai")
+	if !ok || credential.APIKey != "exchanged-key" || credential.Access != "oauth-access" {
+		t.Fatalf("credential=%+v ok=%v", credential, ok)
+	}
+	if key, err := BearerSource("openai", st)(context.Background()); err != nil || key != "exchanged-key" {
+		t.Fatalf("key=%q err=%v", key, err)
+	}
+}
+
+func TestCompleteOpenAILoginExchangeFailureDoesNotPersistOAuthToken(t *testing.T) {
+	st, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := exchangeOpenAIAPIKey
+	exchangeOpenAIAPIKey = func(context.Context, string) (string, error) { return "", fmt.Errorf("exchange unavailable") }
+	t.Cleanup(func() { exchangeOpenAIAPIKey = previous })
+
+	_, err = CompleteLogin(context.Background(), st, "openai", &Tokens{Access: "oauth-access", IDToken: "id-token"})
+	if err == nil || !strings.Contains(err.Error(), "could not obtain an API key") {
+		t.Fatalf("err=%v", err)
+	}
+	if _, ok := st.Get("openai"); ok {
+		t.Fatal("must not persist an OAuth token that cannot be used for OpenAI API calls")
+	}
+}
+
+func TestBearerSourceOpenAIDoesNotUseOAuthAccessToken(t *testing.T) {
+	st, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("openai", Credential{Type: TypeOAuth, Access: "chatgpt-oauth-token", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	key, err := BearerSource("openai", st)(context.Background())
+	if err == nil || key != "" || !strings.Contains(err.Error(), "no ID token") {
+		t.Fatalf("key=%q err=%v", key, err)
+	}
+}
+
+func TestBearerSourceOpenAIExchangesAfterRefresh(t *testing.T) {
+	st, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("openai", Credential{Type: TypeOAuth, Access: "old-access", Refresh: "refresh", IDToken: "old-id", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	refreshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "new-access", "refresh_token": "new-refresh", "id_token": "new-id", "expires_in": 3600})
+	}))
+	defer refreshServer.Close()
+	previousFlow := refreshFlows["openai"]
+	refreshFlows["openai"] = FlowConfig{TokenURL: refreshServer.URL, ClientID: "test-client"}
+	t.Cleanup(func() { refreshFlows["openai"] = previousFlow })
+	previousExchange := exchangeOpenAIAPIKey
+	exchangeOpenAIAPIKey = func(_ context.Context, idToken string) (string, error) {
+		if idToken != "new-id" {
+			t.Fatalf("ID token = %q", idToken)
+		}
+		return "refreshed-api-key", nil
+	}
+	t.Cleanup(func() { exchangeOpenAIAPIKey = previousExchange })
+
+	key, err := BearerSource("openai", st)(context.Background())
+	if err != nil || key != "refreshed-api-key" {
+		t.Fatalf("key=%q err=%v", key, err)
+	}
+	credential, _ := st.Get("openai")
+	if credential.APIKey != "refreshed-api-key" || credential.Access != "new-access" {
+		t.Fatalf("credential=%+v", credential)
 	}
 }
 
