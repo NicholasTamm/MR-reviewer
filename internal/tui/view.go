@@ -160,7 +160,7 @@ func (m Model) viewLink() string {
 	}
 	b.WriteString(mark(fieldAutoPost, "mode", mode))
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  tab fields  ←/→ provider  space toggle  +/- max  enter run  esc back"))
+	b.WriteString(mutedStyle.Render("  tab/↑↓ fields  ←/→ cycle  type model  space toggle  enter run  esc back"))
 	b.WriteString("\n")
 	return b.String()
 }

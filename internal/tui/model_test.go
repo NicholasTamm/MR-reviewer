@@ -139,6 +139,36 @@ func TestBrowseConfigureLocksTargetAndIgnoresLeftoverEnter(t *testing.T) {
 	}
 }
 
+func TestLinkArrowsMoveFieldsAndCycleModels(t *testing.T) {
+	m := testModel(t)
+	m, _ = applyKey(m, key('l'))
+	if m.field != fieldURL {
+		t.Fatalf("field=%d", m.field)
+	}
+	m, _ = applyKey(m, special(tea.KeyDown))
+	if m.field != fieldProvider {
+		t.Fatalf("down field=%d", m.field)
+	}
+	m, _ = applyKey(m, key('j'))
+	if m.field != fieldProvider {
+		t.Fatalf("j must not move fields: %d", m.field)
+	}
+	before := m.provider
+	m, _ = applyKey(m, special(tea.KeyRight))
+	if m.provider == before {
+		t.Fatalf("provider did not cycle")
+	}
+	if len(m.models) < 2 {
+		t.Fatalf("expected builtin catalog, got %v", m.models)
+	}
+	start := m.model
+	m.field = fieldModel
+	m, _ = applyKey(m, special(tea.KeyRight))
+	if m.model == start {
+		t.Fatalf("model did not cycle: %q", m.model)
+	}
+}
+
 func TestManualLinkURLRemainsEditable(t *testing.T) {
 	m := testModel(t)
 	m, _ = applyKey(m, key('l'))

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -21,6 +22,101 @@ type Models struct {
 // Unavailable is a secret-free catalog miss.
 func Unavailable(provider, err string) Models {
 	return Models{Provider: provider, Models: []string{}, Available: false, Error: err}
+}
+
+// BuiltinModels is the keyless review catalog for a built-in provider.
+func BuiltinModels(name string) []string {
+	switch Canonical(strings.ToLower(strings.TrimSpace(name))) {
+	case "openai":
+		return []string{"gpt-4o", "gpt-4o-mini", "gpt-4.1", "o4-mini", "o3"}
+	case "anthropic":
+		return []string{"claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5"}
+	case "xai":
+		return []string{"grok-4", "grok-3", "grok-3-mini"}
+	case "google":
+		return []string{"gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"}
+	case "kimi":
+		return []string{"moonshot-v1", "kimi-k2"}
+	case "deepseek":
+		return []string{"deepseek-chat", "deepseek-reasoner"}
+	case "echo":
+		return []string{"echo"}
+	case "ollama":
+		return []string{"llama3.2", "qwen2.5"}
+	default:
+		return nil
+	}
+}
+
+// FilterReviewModels drops embeddings, TTS, and other non-review IDs.
+func FilterReviewModels(name string, ids []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] || !reviewModel(name, id) {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func reviewModel(_ string, id string) bool {
+	lower := strings.ToLower(id)
+	skip := []string{"embed", "tts", "whisper", "dall-e", "dalle", "moderation", "babbage", "ada-", "davinci", "audio", "realtime", "transcribe", "image", "sora"}
+	for _, part := range skip {
+		if strings.Contains(lower, part) {
+			return false
+		}
+	}
+	return true
+}
+
+// DiscoverQuery is one provider lookup for TUI and the HTTP catalog.
+type DiscoverQuery struct {
+	Name         string
+	BaseURL      string
+	Key          string
+	CustomModels []string
+}
+
+// DiscoverOne returns a keyless built-in list, preferring a live API list when Key is set.
+func DiscoverOne(ctx context.Context, client *http.Client, q DiscoverQuery) Models {
+	name := Canonical(strings.ToLower(strings.TrimSpace(q.Name)))
+	fallback := BuiltinModels(name)
+	if name == "echo" {
+		return Models{Provider: name, Models: []string{"echo"}, Available: true}
+	}
+	if len(q.CustomModels) > 0 {
+		models := append([]string{}, q.CustomModels...)
+		sort.Strings(models)
+		return Models{Provider: name, Models: models, Available: true}
+	}
+	if q.Key == "" && name != "ollama" {
+		if fallback == nil {
+			fallback = []string{}
+		}
+		return Models{Provider: name, Models: append([]string{}, fallback...), Available: true}
+	}
+	live, err := ListRemoteModels(ctx, client, name, q.BaseURL, q.Key)
+	if err != nil || len(live) == 0 {
+		msg := ""
+		if err != nil && fallback != nil {
+			msg = "using built-in model list"
+		}
+		if fallback == nil {
+			return Unavailable(name, "Unable to retrieve available models.")
+		}
+		return Models{Provider: name, Models: append([]string{}, fallback...), Available: true, Error: msg}
+	}
+	filtered := FilterReviewModels(name, live)
+	if len(filtered) == 0 {
+		return Models{Provider: name, Models: append([]string{}, fallback...), Available: true}
+	}
+	sort.Strings(filtered)
+	return Models{Provider: name, Models: filtered, Available: true}
 }
 
 // ListRemoteModels fetches model IDs from a provider endpoint. The key is used
