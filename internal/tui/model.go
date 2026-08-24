@@ -127,13 +127,16 @@ type Model struct {
 	catalogRequest uint64
 
 	// configure / link
-	url      string
-	provider string
-	model    string
-	focus    []string
-	maxC     int
-	autoPost bool
-	field    field
+	url         string
+	reviewTitle string
+	urlLocked   bool
+	ignoreEnter bool
+	provider    string
+	model       string
+	focus       []string
+	maxC        int
+	autoPost    bool
+	field       field
 
 	// HITL
 	summary   string
@@ -463,7 +466,9 @@ func (m Model) handlePaste(s string) (tea.Model, tea.Cmd) {
 	s = strings.TrimSpace(s)
 	switch m.input {
 	case inputURL:
-		m.url += s
+		if !m.urlLocked {
+			m.url += s
+		}
 	case inputModel:
 		m.model += s
 	case inputEditComment, inputEditSummary:
@@ -477,7 +482,7 @@ func (m Model) handlePaste(s string) (tea.Model, tea.Cmd) {
 	case inputOnboardingSecret:
 		m.editBuf += s
 	default:
-		if m.view == ViewLink && m.field == fieldURL {
+		if m.view == ViewLink && m.field == fieldURL && !m.urlLocked {
 			m.url += s
 		}
 	}
@@ -541,7 +546,9 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyBackspace:
 		switch m.input {
 		case inputURL:
-			m.url = trimLast(m.url)
+			if !m.urlLocked {
+				m.url = trimLast(m.url)
+			}
 		case inputModel:
 			m.model = trimLast(m.model)
 		case inputConfig:
@@ -557,7 +564,9 @@ func (m Model) handleInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch m.input {
 	case inputURL:
-		m.url += ch
+		if !m.urlLocked {
+			m.url += ch
+		}
 	case inputModel:
 		m.model += ch
 	case inputConfig:
@@ -668,6 +677,9 @@ func (m Model) keysDashboard(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keyText(msg) == "l":
 		m.view = ViewLink
 		m.field = fieldURL
+		m.urlLocked = false
+		m.reviewTitle = ""
+		m.ignoreEnter = false
 		return m, nil
 	case keyText(msg) == "a":
 		m.view = ViewAuth
@@ -731,27 +743,42 @@ func (m Model) keysReviews(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case msg.Code == tea.KeyEnter && m.catalogLoaded && m.status == "" && m.cursor < len(m.reviews):
-		m.url = m.reviews[m.cursor].WebURL
+		selected := m.reviews[m.cursor]
+		m.url = selected.WebURL
+		m.reviewTitle = selected.Title
+		m.urlLocked = true
+		m.ignoreEnter = true
 		m.view = ViewLink
-		m.field = fieldURL
+		m.field = fieldProvider
 	}
 	return m, nil
 }
 
 func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.ignoreEnter && msg.Code == tea.KeyEnter {
+		m.ignoreEnter = false
+		return m, nil
+	}
+	if msg.Code != tea.KeyEnter {
+		m.ignoreEnter = false
+	}
 	switch {
 	case msg.Code == tea.KeyEsc:
-		m.view = ViewDashboard
+		if m.urlLocked {
+			m.view = ViewReviews
+		} else {
+			m.view = ViewDashboard
+		}
 		return m, nil
 	case msg.Code == tea.KeyTab:
-		m.field = (m.field + 1) % 6
+		m.advanceLinkField()
 		return m, nil
 	case msg.Code == tea.KeyEnter:
-		if m.field == fieldURL && m.url == "" {
+		if m.field == fieldURL && !m.urlLocked && m.url == "" {
 			m.input = inputURL
 			return m, nil
 		}
-		if m.field == fieldModel {
+		if m.field == fieldModel && strings.TrimSpace(m.model) == "" {
 			m.input = inputModel
 			return m, nil
 		}
@@ -791,7 +818,7 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.field == fieldURL && keyText(msg) != "" && msg.Code != tea.KeySpace {
+	if m.field == fieldURL && !m.urlLocked && keyText(msg) != "" && msg.Code != tea.KeySpace {
 		m.url += keyText(msg)
 	}
 	if m.field == fieldModel && keyText(msg) != "" && msg.Code != tea.KeySpace {
@@ -799,6 +826,15 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.model += keyText(msg)
 	}
 	return m, nil
+}
+
+func (m *Model) advanceLinkField() {
+	for {
+		m.field = (m.field + 1) % 6
+		if m.field != fieldURL || !m.urlLocked {
+			return
+		}
+	}
 }
 
 func (m Model) keysHITL(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
