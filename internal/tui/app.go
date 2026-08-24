@@ -9,6 +9,7 @@ import (
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/config"
 	"github.com/jonathanung/mr-reviewer/internal/platform"
+	"github.com/jonathanung/mr-reviewer/internal/provider"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -141,9 +142,38 @@ func RunWith(start View) error {
 		StartView:       start,
 		SaveSettings:    sess.saveSettings,
 		CheckOnboarding: true,
+		LoadModels:      sess.loadModels,
 	})
 	_, err = tea.NewProgram(m).Run()
 	return err
+}
+
+func (s *liveSession) loadModels(name string) ([]string, error) {
+	extra := ""
+	if custom, ok := config.FindCustom(s.cfg.Providers.Customs, name); ok {
+		extra = custom.APIKeyEnv
+	}
+	key := ""
+	if name == "ollama" || auth.CredentialsAvailable(name, s.store, extra) {
+		if name != "ollama" {
+			got, err := auth.BearerSourceEnv(name, s.store, extra)(context.Background())
+			if err == nil {
+				key = got
+			}
+		}
+	}
+	customModels := []string(nil)
+	if custom, ok := config.FindCustom(s.cfg.Providers.Customs, name); ok {
+		customModels = custom.Models
+	}
+	base := provider.BaseURL(name)
+	if custom, ok := config.FindCustom(s.cfg.Providers.Customs, name); ok && custom.BaseURL != "" {
+		base = custom.BaseURL
+	}
+	got := provider.DiscoverOne(context.Background(), nil, provider.DiscoverQuery{
+		Name: name, BaseURL: base, Key: key, CustomModels: customModels,
+	})
+	return got.Models, nil
 }
 
 func (s *liveSession) saveSettings(st config.Settings) error {

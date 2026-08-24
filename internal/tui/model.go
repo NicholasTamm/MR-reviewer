@@ -168,6 +168,9 @@ type Model struct {
 	beginOAuth   func(provider string) (*auth.PendingLogin, error)
 	device       auth.DeviceConfig
 	saveFn       func(config.Settings) error
+	loadModels   func(provider string) ([]string, error)
+	models       []string
+	modelRequest uint64
 
 	// config panel
 	cfgField     configField
@@ -195,6 +198,13 @@ type reviewsMsg struct {
 	request  uint64
 	reviews  []review.ReviewSummary
 	err      error
+}
+
+type modelsMsg struct {
+	provider string
+	request  uint64
+	models   []string
+	note     string
 }
 
 type reviewDoneMsg struct {
@@ -234,6 +244,7 @@ type Deps struct {
 	StartView       View
 	SaveSettings    func(config.Settings) error
 	CheckOnboarding bool
+	LoadModels      func(provider string) ([]string, error)
 }
 
 func New(deps Deps) Model {
@@ -260,6 +271,7 @@ func New(deps Deps) Model {
 		beginOAuth:   deps.BeginOAuth,
 		device:       deps.Device,
 		saveFn:       deps.SaveSettings,
+		loadModels:   deps.LoadModels,
 		cfgGitHub:    cfg.GitHubAPI,
 		cfgGitLab:    cfg.GitLabURL,
 		cfgAnthropic: cfg.AnthropicURL,
@@ -365,6 +377,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.catalogLoaded = true
 		m.status = ""
+		return m, nil
+	case modelsMsg:
+		if msg.provider != m.provider || msg.request != m.modelRequest || m.view != ViewLink {
+			return m, nil
+		}
+		m.models = msg.models
+		if msg.note != "" {
+			m.status = msg.note
+		} else if m.status == "loading models…" {
+			m.status = ""
+		}
+		if !containsString(m.models, m.model) && len(m.models) > 0 {
+			m.model = m.models[0]
+		}
 		return m, nil
 	case reviewsMsg:
 		if msg.platform != m.platform || msg.project.ID != m.project.ID || msg.request != m.catalogRequest || m.view != ViewReviews {
@@ -680,7 +706,7 @@ func (m Model) keysDashboard(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.urlLocked = false
 		m.reviewTitle = ""
 		m.ignoreEnter = false
-		return m, nil
+		return m, m.fetchModels()
 	case keyText(msg) == "a":
 		m.view = ViewAuth
 		m.authCursor = 0
@@ -750,6 +776,7 @@ func (m Model) keysReviews(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.ignoreEnter = true
 		m.view = ViewLink
 		m.field = fieldProvider
+		return m, m.fetchModels()
 	}
 	return m, nil
 }
@@ -771,7 +798,17 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case msg.Code == tea.KeyTab:
+		if msg.Mod&tea.ModShift != 0 {
+			m.retreatLinkField()
+		} else {
+			m.advanceLinkField()
+		}
+		return m, nil
+	case msg.Code == tea.KeyDown:
 		m.advanceLinkField()
+		return m, nil
+	case msg.Code == tea.KeyUp:
+		m.retreatLinkField()
 		return m, nil
 	case msg.Code == tea.KeyEnter:
 		if m.field == fieldURL && !m.urlLocked && m.url == "" {
@@ -808,15 +845,9 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case msg.Code == tea.KeyLeft:
-		if m.field == fieldProvider {
-			m.cycleProvider(-1)
-		}
-		return m, nil
+		return m.cycleLinkValue(-1)
 	case msg.Code == tea.KeyRight:
-		if m.field == fieldProvider {
-			m.cycleProvider(1)
-		}
-		return m, nil
+		return m.cycleLinkValue(1)
 	}
 	if m.field == fieldURL && !m.urlLocked && keyText(msg) != "" && msg.Code != tea.KeySpace {
 		m.url += keyText(msg)
@@ -835,6 +866,76 @@ func (m *Model) advanceLinkField() {
 			return
 		}
 	}
+}
+
+func (m *Model) retreatLinkField() {
+	for {
+		m.field = (m.field + 5) % 6
+		if m.field != fieldURL || !m.urlLocked {
+			return
+		}
+	}
+}
+
+func (m Model) cycleLinkValue(delta int) (tea.Model, tea.Cmd) {
+	switch m.field {
+	case fieldProvider:
+		m.cycleProvider(delta)
+		return m, m.fetchModels()
+	case fieldModel:
+		m.cycleModel(delta)
+	case fieldMax:
+		if delta > 0 && m.maxC < 50 {
+			m.maxC++
+		}
+		if delta < 0 && m.maxC > 1 {
+			m.maxC--
+		}
+	case fieldAutoPost:
+		m.autoPost = !m.autoPost
+	case fieldFocus:
+		m.toggleFocus()
+	}
+	return m, nil
+}
+
+func (m *Model) fetchModels() tea.Cmd {
+	m.modelRequest++
+	request, name := m.modelRequest, m.provider
+	if m.loadModels == nil {
+		m.models = provider.BuiltinModels(name)
+		if !containsString(m.models, m.model) && len(m.models) > 0 {
+			m.model = m.models[0]
+		}
+		return nil
+	}
+	m.status = "loading models…"
+	return func() tea.Msg {
+		models, err := m.loadModels(name)
+		note := ""
+		if err != nil {
+			note = err.Error()
+			models = provider.BuiltinModels(name)
+		}
+		return modelsMsg{provider: name, request: request, models: models, note: note}
+	}
+}
+
+func (m *Model) cycleModel(delta int) {
+	if len(m.models) == 0 {
+		m.models = provider.BuiltinModels(m.provider)
+	}
+	if len(m.models) == 0 {
+		return
+	}
+	i := 0
+	for j, id := range m.models {
+		if id == m.model {
+			i = j
+			break
+		}
+	}
+	m.model = m.models[(i+delta+len(m.models))%len(m.models)]
 }
 
 func (m Model) keysHITL(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -1291,7 +1392,20 @@ func (m *Model) cycleProvider(delta int) {
 	}
 	i = (i + delta + len(names)) % len(names)
 	m.provider = names[i]
+	m.models = provider.BuiltinModels(m.provider)
 	m.model = provider.DefaultModel(m.provider)
+	if !containsString(m.models, m.model) && len(m.models) > 0 {
+		m.model = m.models[0]
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) toggleFocus() {

@@ -81,7 +81,7 @@ Credentials and settings live under `~/.mr-reviewer/` (`auth.json`, `config.json
 1. Start `./mr-reviewer`. Open merge requests visible to your GitLab token appear, grouped by project.
 2. `/` search, `j`/`k` move, `enter` to review a listed MR.
 3. Or `l` to paste a GitLab MR or GitHub/GHE PR URL.
-4. On the link screen: `tab` between URL, provider, model, focus, max comments, and mode. `←`/`→` cycle providers, `enter` or type to edit the model, `space` toggles focus/auto-post, `+/-` changes max comments. `enter` on an empty model field starts typing; `enter` elsewhere runs the review.
+4. On the link screen: `tab` / `↑`/`↓` move between fields (`j`/`k` type into the model). `←`/`→` cycle provider, model catalog, max, and mode. Type to enter a custom model. `space` toggles focus/auto-post. `enter` runs the review.
 5. Wait on the reviewing screen.
 6. On the comment list: `j`/`k` move, `a` approve, `r` reject, `e` edit the body, `s` edit the summary, `p` post approved comments + summary.
 7. Confirmation: `n` review another, `q` quit.
@@ -93,7 +93,7 @@ Mode **review first** (default) always shows the HITL list. **auto-post** posts 
 | Screen | Keys |
 |---|---|
 | Dashboard | `j`/`k` move · `enter` open MR · `/` search · `l` paste URL · `c` config · `a` auth · `q` quit |
-| Link / configure | `tab` fields · `←`/`→` provider · `enter`/type model · `space` toggle · `+/-` max · `enter` run · `esc` back |
+| Link / configure | `tab`/`↑`/`↓` fields · `←`/`→` cycle · type model · `space` toggle · `enter` run · `esc` back |
 | Review (HITL) | `j`/`k` · `a` approve · `r` reject · `e` edit · `s` summary · `p` post · `esc` back |
 | Posted | `n` new · `q` quit |
 | Auth | `j`/`k` · `enter` login · `k` platform PAT · `d` xAI/GitLab/GitHub device · `x` logout · `esc` back. OAuth progress blocks this screen until it succeeds, fails, or is canceled (`c`/`esc`); `r` retries a failed flow. |
