@@ -160,18 +160,19 @@ type Model struct {
 	authFailed  bool
 
 	// injectable for tests / wiring
-	loadProjects  func(platform string) ([]review.Project, error)
-	loadReviews   func(platform string, project review.Project) ([]review.ReviewSummary, error)
-	runReview     func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
-	postFn        func(result review.Result) error
-	loginFn       func(provider, method, secret string) (string, error)
-	beginOAuth    func(provider string) (*auth.PendingLogin, error)
-	device        auth.DeviceConfig
-	saveFn        func(config.Settings) error
-	loadModels    func(provider string) ([]string, error)
-	models        []string
-	modelRequest  uint64
-	configureAuth bool
+	loadProjects    func(platform string) ([]review.Project, error)
+	loadReviews     func(platform string, project review.Project) ([]review.ReviewSummary, error)
+	runReview       func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
+	postFn          func(result review.Result) error
+	loginFn         func(provider, method, secret string) (string, error)
+	beginOAuth      func(provider string) (*auth.PendingLogin, error)
+	device          auth.DeviceConfig
+	saveFn          func(config.Settings) error
+	loadModels      func(provider string) provider.Models
+	models          []string
+	modelsAvailable bool
+	modelRequest    uint64
+	configureAuth   bool
 
 	// config panel
 	cfgField     configField
@@ -204,8 +205,7 @@ type reviewsMsg struct {
 type modelsMsg struct {
 	provider string
 	request  uint64
-	models   []string
-	note     string
+	catalog  provider.Models
 }
 
 type reviewDoneMsg struct {
@@ -245,7 +245,7 @@ type Deps struct {
 	StartView       View
 	SaveSettings    func(config.Settings) error
 	CheckOnboarding bool
-	LoadModels      func(provider string) ([]string, error)
+	LoadModels      func(provider string) provider.Models
 }
 
 func New(deps Deps) Model {
@@ -254,29 +254,30 @@ func New(deps Deps) Model {
 		cfg = config.Load()
 	}
 	m := Model{
-		width:        80,
-		height:       24,
-		view:         ViewDashboard,
-		cfg:          cfg,
-		store:        deps.Store,
-		provider:     cfg.Provider,
-		model:        cfg.Model,
-		focus:        append([]string{}, cfg.Focus...),
-		maxC:         cfg.MaxComments,
-		platform:     "gitlab",
-		loadProjects: deps.LoadProjects,
-		loadReviews:  deps.LoadReviews,
-		runReview:    deps.RunReview,
-		postFn:       deps.Post,
-		loginFn:      deps.Login,
-		beginOAuth:   deps.BeginOAuth,
-		device:       deps.Device,
-		saveFn:       deps.SaveSettings,
-		loadModels:   deps.LoadModels,
-		cfgGitHub:    cfg.GitHubAPI,
-		cfgGitLab:    cfg.GitLabURL,
-		cfgAnthropic: cfg.AnthropicURL,
-		authList:     append(auth.BuiltinProviders(), "gitlab", "github"),
+		width:           80,
+		height:          24,
+		view:            ViewDashboard,
+		cfg:             cfg,
+		store:           deps.Store,
+		provider:        cfg.Provider,
+		model:           cfg.Model,
+		focus:           append([]string{}, cfg.Focus...),
+		maxC:            cfg.MaxComments,
+		platform:        "gitlab",
+		loadProjects:    deps.LoadProjects,
+		loadReviews:     deps.LoadReviews,
+		runReview:       deps.RunReview,
+		postFn:          deps.Post,
+		loginFn:         deps.Login,
+		beginOAuth:      deps.BeginOAuth,
+		device:          deps.Device,
+		saveFn:          deps.SaveSettings,
+		loadModels:      deps.LoadModels,
+		modelsAvailable: config.CanonicalProviderID(cfg.Provider) == "echo",
+		cfgGitHub:       cfg.GitHubAPI,
+		cfgGitLab:       cfg.GitLabURL,
+		cfgAnthropic:    cfg.AnthropicURL,
+		authList:        append(auth.BuiltinProviders(), "gitlab", "github"),
 	}
 	if cfg.Onboarding.Platform == "github" || cfg.Onboarding.Platform == "gitlab" {
 		m.platform = cfg.Onboarding.Platform
@@ -383,13 +384,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.provider != m.provider || msg.request != m.modelRequest || m.view != ViewLink {
 			return m, nil
 		}
-		m.models = msg.models
-		if msg.note != "" {
-			m.status = msg.note
+		m.models = msg.catalog.Models
+		m.modelsAvailable = msg.catalog.Available
+		if msg.catalog.Error != "" {
+			m.status = msg.catalog.Error
 		} else if m.status == "loading models…" {
 			m.status = ""
 		}
-		if !containsString(m.models, m.model) && len(m.models) > 0 {
+		if m.modelsAvailable && !containsString(m.models, m.model) && len(m.models) > 0 {
 			m.model = m.models[0]
 		}
 		return m, nil
@@ -795,7 +797,7 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code != tea.KeyEnter {
 		m.ignoreEnter = false
 	}
-	if !m.providerConfigured() && keyText(msg) == "a" {
+	if !m.modelsAvailable && !m.providerConfigured() && config.CanonicalProviderID(m.provider) != "ollama" && keyText(msg) == "a" {
 		return m.startConfigureAuth()
 	}
 	switch {
@@ -820,7 +822,13 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.retreatLinkField()
 		return m, nil
 	case msg.Code == tea.KeyEnter:
-		if !m.providerConfigured() {
+		if !m.modelsAvailable {
+			if m.providerConfigured() || config.CanonicalProviderID(m.provider) == "ollama" {
+				if m.status == "" || m.status == "loading models…" {
+					m.status = "Provider models are unavailable."
+				}
+				return m, nil
+			}
 			return m.startConfigureAuth()
 		}
 		if m.field == fieldURL && !m.urlLocked && m.url == "" {
@@ -864,7 +872,7 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.field == fieldURL && !m.urlLocked && keyText(msg) != "" && msg.Code != tea.KeySpace {
 		m.url += keyText(msg)
 	}
-	if m.field == fieldModel && m.providerConfigured() && keyText(msg) != "" && msg.Code != tea.KeySpace {
+	if m.field == fieldModel && m.modelsAvailable && keyText(msg) != "" && msg.Code != tea.KeySpace {
 		m.input = inputModel
 		m.model += keyText(msg)
 	}
@@ -895,7 +903,7 @@ func (m Model) cycleLinkValue(delta int) (tea.Model, tea.Cmd) {
 		m.cycleProvider(delta)
 		return m, m.fetchModels()
 	case fieldModel:
-		if m.providerConfigured() {
+		if m.modelsAvailable {
 			m.cycleModel(delta)
 		}
 	case fieldMax:
@@ -916,33 +924,23 @@ func (m Model) cycleLinkValue(delta int) (tea.Model, tea.Cmd) {
 func (m *Model) fetchModels() tea.Cmd {
 	m.modelRequest++
 	request, name := m.modelRequest, m.provider
-	if !m.providerConfigured() {
-		m.models = nil
+	m.models = nil
+	m.modelsAvailable = false
+	if name == "echo" {
+		m.models = []string{"echo"}
+		m.modelsAvailable = true
 		return nil
 	}
 	if m.loadModels == nil {
-		m.models = provider.BuiltinModels(name)
-		if !containsString(m.models, m.model) && len(m.models) > 0 {
-			m.model = m.models[0]
-		}
 		return nil
 	}
 	m.status = "loading models…"
 	return func() tea.Msg {
-		models, err := m.loadModels(name)
-		note := ""
-		if err != nil {
-			note = err.Error()
-			models = provider.BuiltinModels(name)
-		}
-		return modelsMsg{provider: name, request: request, models: models, note: note}
+		return modelsMsg{provider: name, request: request, catalog: m.loadModels(name)}
 	}
 }
 
 func (m *Model) cycleModel(delta int) {
-	if len(m.models) == 0 {
-		m.models = provider.BuiltinModels(m.provider)
-	}
 	if len(m.models) == 0 {
 		return
 	}
@@ -1038,12 +1036,14 @@ func (m Model) startConfigureAuth() (tea.Model, tea.Cmd) {
 
 func (m Model) providerConfigured() bool {
 	name := config.CanonicalProviderID(m.provider)
-	if name == "echo" || name == "ollama" {
+	if name == "echo" {
 		return true
 	}
 	extra := ""
 	if custom, ok := config.FindCustom(m.cfg.Providers.Customs, name); ok {
 		extra = custom.APIKeyEnv
+	} else if endpoint, ok := m.cfg.Providers.Endpoints[name]; ok {
+		extra = endpoint.APIKeyEnv
 	}
 	return auth.CredentialsAvailable(name, m.store, extra)
 }
@@ -1446,11 +1446,9 @@ func (m *Model) cycleProvider(delta int) {
 	}
 	i = (i + delta + len(names)) % len(names)
 	m.provider = names[i]
-	m.models = provider.BuiltinModels(m.provider)
-	m.model = provider.DefaultModel(m.provider)
-	if !containsString(m.models, m.model) && len(m.models) > 0 {
-		m.model = m.models[0]
-	}
+	m.models = nil
+	m.modelsAvailable = false
+	m.model = ""
 }
 
 func containsString(list []string, want string) bool {

@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
+	"github.com/jonathanung/mr-reviewer/internal/config"
 	"github.com/jonathanung/mr-reviewer/internal/provider"
 )
 
@@ -150,7 +151,7 @@ func (m Model) viewLink() string {
 	} else {
 		b.WriteString(mark(fieldURL, "url", url))
 	}
-	if !m.providerConfigured() {
+	if !m.modelsAvailable {
 		line := fmt.Sprintf("  %-10s %s", "provider", m.provider)
 		if m.field == fieldProvider {
 			b.WriteString(mutedStyle.Render(selStyle.Render(line)) + "\n")
@@ -170,8 +171,12 @@ func (m Model) viewLink() string {
 	}
 	b.WriteString(mark(fieldAutoPost, "mode", mode))
 	b.WriteString("\n")
-	if !m.providerConfigured() {
-		b.WriteString(mutedStyle.Render("  unconfigured  a add credentials for " + m.provider + "  esc back"))
+	if !m.modelsAvailable {
+		if !m.providerConfigured() && config.CanonicalProviderID(m.provider) != "ollama" {
+			b.WriteString(mutedStyle.Render("  unconfigured  a add credentials for " + m.provider + "  esc back"))
+		} else {
+			b.WriteString(mutedStyle.Render("  unavailable  " + m.status + "  esc back"))
+		}
 	} else {
 		b.WriteString(mutedStyle.Render("  tab/↑↓ fields  ←/→ cycle  type model  space toggle  enter run  esc back"))
 	}

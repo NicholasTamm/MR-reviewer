@@ -148,10 +148,12 @@ func RunWith(start View) error {
 	return err
 }
 
-func (s *liveSession) loadModels(name string) ([]string, error) {
+func (s *liveSession) loadModels(name string) provider.Models {
 	extra := ""
 	if custom, ok := config.FindCustom(s.cfg.Providers.Customs, name); ok {
 		extra = custom.APIKeyEnv
+	} else if endpoint, ok := s.cfg.Providers.Endpoints[name]; ok {
+		extra = endpoint.APIKeyEnv
 	}
 	key := ""
 	if name == "ollama" || auth.CredentialsAvailable(name, s.store, extra) {
@@ -167,13 +169,19 @@ func (s *liveSession) loadModels(name string) ([]string, error) {
 		customModels = custom.Models
 	}
 	base := provider.BaseURL(name)
+	if endpoint, ok := s.cfg.Providers.Endpoints[name]; ok && endpoint.BaseURL != "" {
+		base = endpoint.BaseURL
+	}
+	if name == "anthropic" && s.cfg.AnthropicURL != "" {
+		base = s.cfg.AnthropicURL
+	}
 	if custom, ok := config.FindCustom(s.cfg.Providers.Customs, name); ok && custom.BaseURL != "" {
 		base = custom.BaseURL
 	}
 	got := provider.DiscoverOne(context.Background(), nil, provider.DiscoverQuery{
 		Name: name, BaseURL: base, Key: key, CustomModels: customModels,
 	})
-	return got.Models, nil
+	return got
 }
 
 func (s *liveSession) saveSettings(st config.Settings) error {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/config"
+	"github.com/jonathanung/mr-reviewer/internal/provider"
 	"github.com/jonathanung/mr-reviewer/internal/review"
 )
 
@@ -158,14 +159,31 @@ func TestLinkArrowsMoveFieldsAndCycleModels(t *testing.T) {
 	if m.provider == before {
 		t.Fatalf("provider did not cycle")
 	}
-	if len(m.models) < 2 {
-		t.Fatalf("expected builtin catalog, got %v", m.models)
-	}
-	start := m.model
 	m.field = fieldModel
 	m, _ = applyKey(m, special(tea.KeyRight))
-	if m.model == start {
-		t.Fatalf("model did not cycle: %q", m.model)
+	if len(m.models) != 0 || m.modelsAvailable {
+		t.Fatalf("unavailable provider received a model catalog: %+v", m.models)
+	}
+}
+
+func TestUnavailableCatalogDoesNotRestoreBuiltinModels(t *testing.T) {
+	m := testModel(t)
+	m.provider = "openai"
+	m.model = "gpt-4o"
+	m.models = nil
+	m.modelsAvailable = false
+	m.loadModels = func(string) provider.Models {
+		return provider.Unavailable("openai", "Unable to retrieve available models.")
+	}
+	m, cmd := applyKey(m, key('l'))
+	m = drain(t, m, cmd)
+	if m.modelsAvailable || len(m.models) != 0 || !strings.Contains(m.render(), "Unable to retrieve available models.") {
+		t.Fatalf("unavailable catalog = models=%v available=%v view=\n%s", m.models, m.modelsAvailable, m.render())
+	}
+	m.field = fieldModel
+	m, _ = applyKey(m, special(tea.KeyRight))
+	if len(m.models) != 0 || m.ModelID() != "gpt-4o" {
+		t.Fatalf("cycle restored models=%v selected=%q", m.models, m.ModelID())
 	}
 }
 
@@ -321,10 +339,6 @@ func TestConfigureAndRunReviewHITL(t *testing.T) {
 		t.Fatalf("url = %q", m.URL())
 	}
 	m, _ = applyKey(m, special(tea.KeyTab)) // provider
-	m, _ = applyKey(m, special(tea.KeyRight))
-	if m.Provider() == "" {
-		t.Fatal("empty provider")
-	}
 	m, _ = applyKey(m, special(tea.KeyTab)) // model
 	m, _ = applyKey(m, special(tea.KeyTab)) // focus
 	m, _ = applyKey(m, key(' '))
