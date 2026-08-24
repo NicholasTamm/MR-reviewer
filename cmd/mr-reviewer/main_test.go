@@ -58,6 +58,35 @@ func TestElectronSpawnsGoServe(t *testing.T) {
 	}
 }
 
+func TestPythonProductPathRemoved(t *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, rel := range []string{
+		"pyproject.toml",
+		"mr-reviewer-server.spec",
+		"Dockerfile",
+		"docker-compose.yml",
+		"mr_reviewer",
+		"tests",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			t.Fatalf("python product path still present: %s", rel)
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(readme)
+	if strings.Contains(text, "python -m mr_reviewer") || strings.Contains(text, "pip install") || strings.Contains(text, "FastAPI") {
+		t.Fatal("README must describe the Go binary only")
+	}
+	if !strings.Contains(text, "go test ./...") || !strings.Contains(text, "npm run build") {
+		t.Fatal("README must keep go test and the Electron frontend build as verification")
+	}
+}
+
 func TestRunUnknown(t *testing.T) {
 	if code := run([]string{"nope"}); code == 0 {
 		t.Fatal("expected non-zero")
