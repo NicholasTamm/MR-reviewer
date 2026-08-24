@@ -51,6 +51,16 @@ func (s *authSessionStore) get(id string) *authSession {
 	return s.byID[id]
 }
 
+func (s *authSessionStore) snapshot(id string) (authSessionJSON, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess := s.byID[id]
+	if sess == nil {
+		return authSessionJSON{}, false
+	}
+	return sess.json(), true
+}
+
 func decodeJSON(r *http.Request, dest any) error {
 	defer r.Body.Close()
 	dec := json.NewDecoder(r.Body)
@@ -93,16 +103,17 @@ func (s *Server) handleAuthStart(w http.ResponseWriter, r *http.Request) {
 	} else {
 		s.startOAuthSession(ctx, sess)
 	}
-	writeJSON(w, http.StatusCreated, sess.json())
+	out, _ := s.sessions.snapshot(sess.ID)
+	writeJSON(w, http.StatusCreated, out)
 }
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
-	sess := s.sessions.get(r.PathValue("session_id"))
-	if sess == nil {
+	out, ok := s.sessions.snapshot(r.PathValue("session_id"))
+	if !ok {
 		writeDetail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, sess.json())
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleAuthCancel(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +130,8 @@ func (s *Server) handleAuthCancel(w http.ResponseWriter, r *http.Request) {
 			cur.Status = "canceled"
 		}
 	})
-	writeJSON(w, http.StatusOK, s.sessions.get(sess.ID).json())
+	out, _ := s.sessions.snapshot(sess.ID)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleAuthPaste(w http.ResponseWriter, r *http.Request) {
