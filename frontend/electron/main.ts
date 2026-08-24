@@ -17,8 +17,29 @@ const authToken = randomBytes(32).toString("hex");
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const keytar = createRequire(import.meta.url)("keytar") as typeof import("keytar");
 const keytarService = "mr-reviewer";
-const credentialKeys = new Set(["GITLAB_TOKEN", "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"]);
-const settingKeys = new Set(["MR_REVIEWER_PROVIDER", "MR_REVIEWER_MODEL", "MR_REVIEWER_FOCUS", "MR_REVIEWER_PARALLEL", "MR_REVIEWER_PARALLEL_THRESHOLD", "MR_REVIEWER_MAX_COMMENTS", "OLLAMA_HOST", "MR_REVIEWER_GITLAB_URL"]);
+const credentialKeys = new Set([
+  "GITLAB_TOKEN",
+  "GITHUB_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "XAI_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "KIMI_API_KEY",
+  "DEEPSEEK_API_KEY",
+]);
+const settingKeys = new Set([
+  "MR_REVIEWER_PROVIDER",
+  "MR_REVIEWER_MODEL",
+  "MR_REVIEWER_FOCUS",
+  "MR_REVIEWER_PARALLEL",
+  "MR_REVIEWER_PARALLEL_THRESHOLD",
+  "MR_REVIEWER_MAX_COMMENTS",
+  "MR_REVIEWER_AUTO_POST",
+  "OLLAMA_HOST",
+  "MR_REVIEWER_GITLAB_URL",
+  "MR_REVIEWER_GITHUB_API",
+]);
 let runtimeSettings: Record<string, string> = {};
 
 if (!app.isPackaged) {
@@ -45,8 +66,16 @@ async function loadRuntimeSettings(): Promise<void> {
   catch { runtimeSettings = {}; }
 }
 
-function getBackendEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, MR_REVIEWER_TOKEN: authToken };
+async function getBackendEnv(): Promise<NodeJS.ProcessEnv> {
+  const env: NodeJS.ProcessEnv = { ...process.env, MR_REVIEWER_TOKEN: authToken };
+  for (const [key, value] of Object.entries(runtimeSettings)) {
+    if (settingKeys.has(key) && value) env[key] = value;
+  }
+  for (const key of credentialKeys) {
+    const secret = await keytar.getPassword(keytarService, key);
+    if (secret) env[key] = secret;
+  }
+  return env;
 }
 
 function waitForBackend(port: number, timeoutMs = 30_000): Promise<void> {
@@ -89,9 +118,9 @@ async function ensureBackend(): Promise<void> {
 
   backendPort = await findFreePort();
   const { executable, args, cwd } = backendCommand(backendPort);
-  backendProcess = spawn(executable, args, {
+    backendProcess = spawn(executable, args, {
       cwd,
-      env: getBackendEnv(),
+      env: await getBackendEnv(),
       stdio: "pipe",
     });
   backendProcess.stderr?.on("data", (data: Buffer) => process.stderr.write(`[backend] ${data}`));
