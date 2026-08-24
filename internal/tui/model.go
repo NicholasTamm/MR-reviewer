@@ -160,17 +160,18 @@ type Model struct {
 	authFailed  bool
 
 	// injectable for tests / wiring
-	loadProjects func(platform string) ([]review.Project, error)
-	loadReviews  func(platform string, project review.Project) ([]review.ReviewSummary, error)
-	runReview    func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
-	postFn       func(result review.Result) error
-	loginFn      func(provider, method, secret string) (string, error)
-	beginOAuth   func(provider string) (*auth.PendingLogin, error)
-	device       auth.DeviceConfig
-	saveFn       func(config.Settings) error
-	loadModels   func(provider string) ([]string, error)
-	models       []string
-	modelRequest uint64
+	loadProjects  func(platform string) ([]review.Project, error)
+	loadReviews   func(platform string, project review.Project) ([]review.ReviewSummary, error)
+	runReview     func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error)
+	postFn        func(result review.Result) error
+	loginFn       func(provider, method, secret string) (string, error)
+	beginOAuth    func(provider string) (*auth.PendingLogin, error)
+	device        auth.DeviceConfig
+	saveFn        func(config.Settings) error
+	loadModels    func(provider string) ([]string, error)
+	models        []string
+	modelRequest  uint64
+	configureAuth bool
 
 	// config panel
 	cfgField     configField
@@ -479,6 +480,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.authCode = nil
 		m.authFailed = false
 		m.input = inputNone
+		if m.configureAuth {
+			m.configureAuth = false
+			m.view = ViewLink
+			return m, m.fetchModels()
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -789,6 +795,9 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if msg.Code != tea.KeyEnter {
 		m.ignoreEnter = false
 	}
+	if !m.providerConfigured() && keyText(msg) == "a" {
+		return m.startConfigureAuth()
+	}
 	switch {
 	case msg.Code == tea.KeyEsc:
 		if m.urlLocked {
@@ -811,6 +820,9 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.retreatLinkField()
 		return m, nil
 	case msg.Code == tea.KeyEnter:
+		if !m.providerConfigured() {
+			return m.startConfigureAuth()
+		}
 		if m.field == fieldURL && !m.urlLocked && m.url == "" {
 			m.input = inputURL
 			return m, nil
@@ -852,7 +864,7 @@ func (m Model) keysLink(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.field == fieldURL && !m.urlLocked && keyText(msg) != "" && msg.Code != tea.KeySpace {
 		m.url += keyText(msg)
 	}
-	if m.field == fieldModel && keyText(msg) != "" && msg.Code != tea.KeySpace {
+	if m.field == fieldModel && m.providerConfigured() && keyText(msg) != "" && msg.Code != tea.KeySpace {
 		m.input = inputModel
 		m.model += keyText(msg)
 	}
@@ -883,7 +895,9 @@ func (m Model) cycleLinkValue(delta int) (tea.Model, tea.Cmd) {
 		m.cycleProvider(delta)
 		return m, m.fetchModels()
 	case fieldModel:
-		m.cycleModel(delta)
+		if m.providerConfigured() {
+			m.cycleModel(delta)
+		}
 	case fieldMax:
 		if delta > 0 && m.maxC < 50 {
 			m.maxC++
@@ -902,6 +916,10 @@ func (m Model) cycleLinkValue(delta int) (tea.Model, tea.Cmd) {
 func (m *Model) fetchModels() tea.Cmd {
 	m.modelRequest++
 	request, name := m.modelRequest, m.provider
+	if !m.providerConfigured() {
+		m.models = nil
+		return nil
+	}
 	if m.loadModels == nil {
 		m.models = provider.BuiltinModels(name)
 		if !containsString(m.models, m.model) && len(m.models) > 0 {
@@ -994,6 +1012,42 @@ func (m Model) keysConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) leaveAuthView() Model {
+	if m.configureAuth {
+		m.configureAuth = false
+		m.view = ViewLink
+	} else {
+		m.view = ViewDashboard
+	}
+	return m
+}
+
+func (m Model) startConfigureAuth() (tea.Model, tea.Cmd) {
+	m.configureAuth = true
+	m.authProv = m.provider
+	for i, name := range m.authList {
+		if name == m.provider {
+			m.authCursor = i
+			break
+		}
+	}
+	m.view = ViewAuth
+	m.status = "add credentials for " + m.provider
+	return m, nil
+}
+
+func (m Model) providerConfigured() bool {
+	name := config.CanonicalProviderID(m.provider)
+	if name == "echo" || name == "ollama" {
+		return true
+	}
+	extra := ""
+	if custom, ok := config.FindCustom(m.cfg.Providers.Customs, name); ok {
+		extra = custom.APIKeyEnv
+	}
+	return auth.CredentialsAvailable(name, m.store, extra)
+}
+
 func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.authCancel != nil {
 		switch {
@@ -1007,7 +1061,7 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.input = inputNone
 			m.authFailed = false
 			m.status = ""
-			m.view = ViewDashboard
+			m = m.leaveAuthView()
 		}
 		return m, nil
 	}
@@ -1019,13 +1073,13 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.authFailed = false
 			m.authCode = nil
 			m.status = ""
-			m.view = ViewDashboard
+			m = m.leaveAuthView()
 		}
 		return m, nil
 	}
 	switch {
 	case msg.Code == tea.KeyEsc:
-		m.view = ViewDashboard
+		m = m.leaveAuthView()
 		return m, nil
 	case msg.Code == tea.KeyDown || keyText(msg) == "j":
 		if m.authCursor < len(m.authList)-1 {
