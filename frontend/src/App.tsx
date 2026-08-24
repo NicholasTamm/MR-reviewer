@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, HashRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, HashRouter, Navigate, Outlet, Route, Routes, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { Toaster } from "sonner";
 import { ReviewProvider } from "@/context/ReviewContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import { ConfigurePage } from "@/pages/ConfigurePage";
 import { ReviewPage } from "@/pages/ReviewPage";
 import { ConfirmationPage } from "@/pages/ConfirmationPage";
-import { BrowseProjectsPage } from "@/pages/BrowseProjectsPage";
-import { BrowseProjectPage } from "@/pages/BrowseProjectPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { getOnboarding } from "@/lib/api";
@@ -34,6 +32,19 @@ function OnboardingGate() {
   return <Outlet />;
 }
 
+function BrowseRedirect() {
+  const [params] = useSearchParams();
+  const platform = params.get("platform") === "github" ? "github" : "gitlab";
+  return <Navigate to={`/?platform=${platform}`} replace />;
+}
+
+function BrowseProjectRedirect() {
+  const { platform = "gitlab", projectId = "", repo = "" } = useParams();
+  const project = platform === "github" && repo ? `${projectId}/${repo}` : projectId;
+  const query = new URLSearchParams({ platform, ...(project ? { project } : {}) });
+  return <Navigate to={`/?${query}`} replace />;
+}
+
 function App() {
   const Router = window.electronAPI ? HashRouter : BrowserRouter;
 
@@ -46,11 +57,11 @@ function App() {
             <Route element={<AppLayout currentStep="configure" />}>
               <Route path="/" element={<ConfigurePage />} />
               <Route path="/onboarding" element={<OnboardingPage />} />
-              <Route path="/browse" element={<BrowseProjectsPage />} />
-              <Route path="/browse/github/:projectId/:repo" element={<BrowseProjectPage />} />
-              <Route path="/browse/:platform/:projectId" element={<BrowseProjectPage />} />
-              <Route path="/gitlab/merge-requests" element={<Navigate to="/browse?platform=gitlab" replace />} />
-              <Route path="/gitlab/projects/:projectId" element={<BrowseProjectPage />} />
+              <Route path="/browse" element={<BrowseRedirect />} />
+              <Route path="/browse/github/:projectId/:repo" element={<BrowseProjectRedirect />} />
+              <Route path="/browse/:platform/:projectId" element={<BrowseProjectRedirect />} />
+              <Route path="/gitlab/merge-requests" element={<Navigate to="/?platform=gitlab" replace />} />
+              <Route path="/gitlab/projects/:projectId" element={<BrowseProjectRedirect />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
             <Route element={<AppLayout currentStep="review" />}>
