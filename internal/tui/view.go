@@ -141,7 +141,15 @@ func (m Model) viewLink() string {
 		model += "█"
 	}
 	var b strings.Builder
-	b.WriteString(mark(fieldURL, "url", url))
+	if m.urlLocked {
+		title := m.reviewTitle
+		if title == "" {
+			title = url
+		}
+		b.WriteString("  " + titleStyle.Render(title) + "\n")
+	} else {
+		b.WriteString(mark(fieldURL, "url", url))
+	}
 	b.WriteString(mark(fieldProvider, "provider", m.provider))
 	b.WriteString(mark(fieldModel, "model", model))
 	b.WriteString(mark(fieldFocus, "focus", strings.Join(m.focus, ", ")))

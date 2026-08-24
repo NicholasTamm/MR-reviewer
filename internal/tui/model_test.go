@@ -99,6 +99,53 @@ func TestBrowseSelectsProjectAndMR(t *testing.T) {
 	if m.ViewName() != ViewLink || m.URL() != "https://gitlab.com/group/project/-/merge_requests/7" {
 		t.Fatalf("view=%s url=%q", m.ViewName(), m.URL())
 	}
+	if !strings.Contains(m.render(), "Fix login") || strings.Contains(m.render(), "url        https://") {
+		t.Fatalf("locked configure view =\n%s", m.render())
+	}
+}
+
+func TestBrowseConfigureLocksTargetAndIgnoresLeftoverEnter(t *testing.T) {
+	var started int
+	m := testModel(t)
+	m.runReview = func(url, provider, model string, focus []string, maxC int) (review.Result, review.Metadata, error) {
+		started++
+		return review.Result{Summary: "ok"}, review.Metadata{Title: "Fix login", WebURL: url}, nil
+	}
+	m, cmd := applyKey(m, special(tea.KeyEnter))
+	m = drain(t, m, cmd)
+	m, cmd = applyKey(m, special(tea.KeyEnter))
+	m = drain(t, m, cmd)
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	before := m.URL()
+	m, cmd = applyKey(m, special(tea.KeyEnter))
+	if started != 0 || m.ViewName() != ViewLink {
+		t.Fatalf("leftover enter started review: started=%d view=%s", started, m.ViewName())
+	}
+	m, _ = applyKey(m, key('x'))
+	if m.URL() != before {
+		t.Fatalf("locked url changed: %q", m.URL())
+	}
+	m, _ = applyKey(m, special(tea.KeyTab))
+	if m.field == fieldURL {
+		t.Fatalf("tab landed on locked url field")
+	}
+	m, cmd = applyKey(m, special(tea.KeyEnter))
+	if cmd == nil || started != 0 {
+		t.Fatalf("expected review command after idle enter, started=%d cmd=%v", started, cmd != nil)
+	}
+	m = drain(t, m, cmd)
+	if started != 1 || m.ViewName() != ViewHITL {
+		t.Fatalf("review after idle enter: started=%d view=%s", started, m.ViewName())
+	}
+}
+
+func TestManualLinkURLRemainsEditable(t *testing.T) {
+	m := testModel(t)
+	m, _ = applyKey(m, key('l'))
+	m, _ = applyKey(m, key('h'))
+	if m.URL() != "h" {
+		t.Fatalf("manual url = %q", m.URL())
+	}
 }
 
 func TestPlatformSwitchIsScopedToBrowseEntry(t *testing.T) {

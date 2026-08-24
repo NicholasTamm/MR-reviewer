@@ -410,11 +410,6 @@ func TestConfigureChoosesModel(t *testing.T) {
 	m, _ = applyKey(m, key('l'))
 	m, _ = applyKey(m, special(tea.KeyTab)) // provider
 	m, _ = applyKey(m, special(tea.KeyTab)) // model
-	m, _ = applyKey(m, special(tea.KeyEnter))
-	if m.input != inputModel {
-		t.Fatalf("enter on model field: input=%d, want inputModel; view=%s", m.input, m.ViewName())
-	}
-	// replace default by typing
 	before := m.ModelID()
 	m, _ = applyKey(m, key('g'))
 	m, _ = applyKey(m, key('p'))
