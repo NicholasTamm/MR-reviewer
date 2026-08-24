@@ -459,3 +459,71 @@ func TestGitLabInsecureRejected(t *testing.T) {
 		t.Fatal(resp.Status)
 	}
 }
+
+func TestOnboardingStatusAndComplete(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.OpenStore(filepath.Join(dir, "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved config.OnboardingState
+	s := testServer(t, nil, nil)
+	s.Store = store
+	s.sessions = newAuthSessionStore()
+	s.Settings.GitHubAPI = "https://api.github.com"
+	s.SaveOnboarding = func(state config.OnboardingState) error { saved = state; return nil }
+
+	resp := doJSON(t, s.Handler(), http.MethodGet, "/api/onboarding", "", nil)
+	status := decode(t, resp)
+	if status["complete"] != false {
+		t.Fatalf("expected incomplete: %v", status)
+	}
+
+	resp = doJSON(t, s.Handler(), http.MethodPost, "/api/onboarding/secret", `{"kind":"provider","name":"anthropic","secret":"provider-secret"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("provider secret: %s", decode(t, resp))
+	}
+	resp = doJSON(t, s.Handler(), http.MethodPost, "/api/onboarding/secret", `{"kind":"platform","name":"github","secret":"platform-secret"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("platform secret: %s", decode(t, resp))
+	}
+	resp = doJSON(t, s.Handler(), http.MethodPost, "/api/onboarding", `{"provider":"anthropic","platform":"github"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("complete: %s", decode(t, resp))
+	}
+	if saved.Provider != "anthropic" || saved.Platform != "github" || saved.ProviderFingerprint == "" {
+		t.Fatalf("saved = %+v", saved)
+	}
+	if decode(t, resp)["complete"] != true {
+		t.Fatalf("status after complete: %v", decode(t, doJSON(t, s.Handler(), http.MethodGet, "/api/onboarding", "", nil)))
+	}
+}
+
+func TestAuthDeviceSessionBlocksUntilCompleteOrCancel(t *testing.T) {
+	s := testServer(t, nil, nil)
+	s.sessions = newAuthSessionStore()
+	s.DeviceFlow = func(name string) (auth.DeviceConfig, error) {
+		if name != "github" {
+			t.Fatalf("name = %s", name)
+		}
+		return auth.DeviceConfig{}, errors.New("authorization pending in test")
+	}
+	resp := doJSON(t, s.Handler(), http.MethodPost, "/api/auth/sessions", `{"kind":"platform","name":"github","method":"device"}`, nil)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("start: %d %v", resp.StatusCode, decode(t, resp))
+	}
+	started := decode(t, resp)
+	if started["status"] != "pending" && started["status"] != "failed" {
+		t.Fatalf("session = %v", started)
+	}
+	id, _ := started["session_id"].(string)
+	got := decode(t, doJSON(t, s.Handler(), http.MethodGet, "/api/auth/sessions/"+id, "", nil))
+	errText, _ := got["error"].(string)
+	if got["status"] != "failed" || !strings.Contains(errText, "authorization pending") {
+		t.Fatalf("status = %v", got)
+	}
+	cancel := decode(t, doJSON(t, s.Handler(), http.MethodPost, "/api/auth/sessions/"+id+"/cancel", "", nil))
+	if cancel["session_id"] != id {
+		t.Fatalf("cancel = %v", cancel)
+	}
+}
