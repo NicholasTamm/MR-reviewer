@@ -150,8 +150,18 @@ func (m Model) viewLink() string {
 	} else {
 		b.WriteString(mark(fieldURL, "url", url))
 	}
-	b.WriteString(mark(fieldProvider, "provider", m.provider))
-	b.WriteString(mark(fieldModel, "model", model))
+	if !m.providerConfigured() {
+		line := fmt.Sprintf("  %-10s %s", "provider", m.provider)
+		if m.field == fieldProvider {
+			b.WriteString(mutedStyle.Render(selStyle.Render(line)) + "\n")
+		} else {
+			b.WriteString(mutedStyle.Render(line) + "\n")
+		}
+		b.WriteString(mark(fieldModel, "model", "-"))
+	} else {
+		b.WriteString(mark(fieldProvider, "provider", m.provider))
+		b.WriteString(mark(fieldModel, "model", model))
+	}
 	b.WriteString(mark(fieldFocus, "focus", strings.Join(m.focus, ", ")))
 	b.WriteString(mark(fieldMax, "max", fmt.Sprintf("%d", m.maxC)))
 	mode := "review first"
@@ -160,7 +170,11 @@ func (m Model) viewLink() string {
 	}
 	b.WriteString(mark(fieldAutoPost, "mode", mode))
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  tab/↑↓ fields  ←/→ cycle  type model  space toggle  enter run  esc back"))
+	if !m.providerConfigured() {
+		b.WriteString(mutedStyle.Render("  unconfigured  a add credentials for " + m.provider + "  esc back"))
+	} else {
+		b.WriteString(mutedStyle.Render("  tab/↑↓ fields  ←/→ cycle  type model  space toggle  enter run  esc back"))
+	}
 	b.WriteString("\n")
 	return b.String()
 }

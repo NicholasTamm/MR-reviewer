@@ -169,6 +169,37 @@ func TestLinkArrowsMoveFieldsAndCycleModels(t *testing.T) {
 	}
 }
 
+func TestUnconfiguredProviderIsDimmedAndJumpsToAuth(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started int
+	m := testModel(t)
+	m.store = store
+	m.provider = "openai"
+	m.runReview = func(string, string, string, []string, int) (review.Result, review.Metadata, error) {
+		started++
+		return review.Result{}, review.Metadata{}, nil
+	}
+	m, _ = applyKey(m, key('l'))
+	if strings.Contains(m.render(), "unconfigured") == false || !strings.Contains(m.render(), "model      -") {
+		t.Fatalf("unconfigured view =\n%s", m.render())
+	}
+	if m.loadModels != nil {
+		t.Fatal("test fixture should not fetch")
+	}
+	m, cmd := applyKey(m, special(tea.KeyEnter))
+	if started != 0 || cmd != nil || m.ViewName() != ViewAuth || m.authProv != "openai" {
+		t.Fatalf("enter should open auth: started=%d view=%s prov=%s", started, m.ViewName(), m.authProv)
+	}
+	m, _ = applyKey(m, special(tea.KeyEsc))
+	if m.ViewName() != ViewLink {
+		t.Fatalf("esc back to configure = %s", m.ViewName())
+	}
+}
+
 func TestManualLinkURLRemainsEditable(t *testing.T) {
 	m := testModel(t)
 	m, _ = applyKey(m, key('l'))
