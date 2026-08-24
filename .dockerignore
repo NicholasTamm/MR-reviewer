@@ -1,9 +1,0 @@
-.git
-.env
-__pycache__
-*.pyc
-*.pyo
-prompts/
-research/
-README.md
-.env.example

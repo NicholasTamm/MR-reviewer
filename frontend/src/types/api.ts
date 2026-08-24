@@ -1,4 +1,4 @@
-/** TypeScript interfaces mirroring the FastAPI Pydantic schemas. */
+/** TypeScript interfaces mirroring the Go review API models. */
 
 export interface ReviewRequest {
   url: string;
