@@ -15,7 +15,7 @@ export function AppLayout({ currentStep }: AppLayoutProps) {
           <Link to="/" className="font-mono text-sm font-bold tracking-tight text-foreground hover:text-primary">
             MR Reviewer
           </Link>
-          <Link to="/gitlab/merge-requests" className="text-sm text-muted-foreground hover:text-foreground">Browse GitLab</Link>
+          <Link to="/browse" className="text-sm text-muted-foreground hover:text-foreground">Browse</Link>
           <Link to="/settings" className="text-sm text-muted-foreground hover:text-foreground">Settings</Link>
           <StepIndicator currentStep={currentStep} />
         </div>

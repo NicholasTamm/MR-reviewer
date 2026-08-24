@@ -11,6 +11,10 @@ import type {
   GitLabMergeRequestCatalog,
   GitLabProjectsResponse,
   GitLabProjectMergeRequests,
+  GitHubProjectsResponse,
+  GitHubProjectPRsResponse,
+  OnboardingStatus,
+  AuthSession,
 } from "@/types/api";
 
 class ApiError extends Error {
@@ -142,5 +146,23 @@ export function getGitLabMergeRequests(search = ""): Promise<GitLabMergeRequestC
 
 export function getGitLabProjects(search = ""): Promise<GitLabProjectsResponse> { return request(`/api/gitlab/projects?search=${encodeURIComponent(search)}`); }
 export function getGitLabProjectMergeRequests(projectId: string): Promise<GitLabProjectMergeRequests> { return request(`/api/gitlab/projects/${encodeURIComponent(projectId)}/merge-requests`); }
+export function getGitHubProjects(search = ""): Promise<GitHubProjectsResponse> { return request(`/api/github/projects?search=${encodeURIComponent(search)}`); }
+export function getGitHubProjectPRs(owner: string, repo: string): Promise<GitHubProjectPRsResponse> { return request(`/api/github/projects/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests`); }
+export function getOnboarding(): Promise<OnboardingStatus> { return request("/api/onboarding"); }
+export function saveOnboardingSecret(kind: string, name: string, secret: string): Promise<void> {
+  return request("/api/onboarding/secret", { method: "POST", body: JSON.stringify({ kind, name, secret }) });
+}
+export function completeOnboarding(provider: string, platform: string): Promise<OnboardingStatus> {
+  return request("/api/onboarding", { method: "POST", body: JSON.stringify({ provider, platform }) });
+}
+export function startAuthSession(kind: string, name: string, method: string): Promise<AuthSession> {
+  return request("/api/auth/sessions", { method: "POST", body: JSON.stringify({ kind, name, method }) });
+}
+export function getAuthSession(sessionId: string): Promise<AuthSession> {
+  return request(`/api/auth/sessions/${encodeURIComponent(sessionId)}`);
+}
+export function cancelAuthSession(sessionId: string): Promise<AuthSession> {
+  return request(`/api/auth/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: "POST" });
+}
 
 export { ApiError };

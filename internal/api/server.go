@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
@@ -39,6 +40,12 @@ type Server struct {
 	GitHub      func() (platform.Catalog, error)
 	Discover    func(ctx context.Context) []provider.Models
 	HTTP        *http.Client
+
+	mu             sync.Mutex
+	sessions       *authSessionStore
+	SaveOnboarding func(config.OnboardingState) error
+	DeviceFlow     func(name string) (auth.DeviceConfig, error)
+	BeginOAuth     func(name string) (*auth.PendingLogin, error)
 }
 
 type gitlabSurface interface {
@@ -56,6 +63,7 @@ func New(settings config.Settings, store *auth.Store, token string) *Server {
 		Jobs:     newJobStore(),
 		Now:      func() time.Time { return time.Now().UTC() },
 		NewID:    newID,
+		sessions: newAuthSessionStore(),
 	}
 	s.NewPlatform = func(info review.Info) (review.Platform, error) {
 		return settings.PlatformFor(info, store)
@@ -91,6 +99,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/gitlab/projects/{project_id}/merge-requests", s.handleGitLabProjectMRs)
 	mux.HandleFunc("GET /api/github/projects", s.handleGitHubProjects)
 	mux.HandleFunc("GET /api/github/projects/{owner}/{repo}/pull-requests", s.handleGitHubProjectPRs)
+	mux.HandleFunc("GET /api/onboarding", s.handleOnboardingStatus)
+	mux.HandleFunc("POST /api/onboarding", s.handleOnboardingComplete)
+	mux.HandleFunc("POST /api/onboarding/secret", s.handleOnboardingSecret)
+	mux.HandleFunc("POST /api/auth/sessions", s.handleAuthStart)
+	mux.HandleFunc("GET /api/auth/sessions/{session_id}", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/sessions/{session_id}/cancel", s.handleAuthCancel)
+	mux.HandleFunc("POST /api/auth/sessions/{session_id}/paste", s.handleAuthPaste)
 	return s.middleware(mux)
 }
 

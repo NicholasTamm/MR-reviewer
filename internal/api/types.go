@@ -139,6 +139,52 @@ type githubProjectPRsJSON struct {
 	PullRequests []githubPRJSON `json:"pull_requests"`
 }
 
+type onboardingOptionJSON struct {
+	ID            string   `json:"id"`
+	HasCredential bool     `json:"has_credential"`
+	Methods       []string `json:"methods"`
+}
+
+type onboardingStatusJSON struct {
+	Complete         bool                   `json:"complete"`
+	Reason           string                 `json:"reason"`
+	Repair           bool                   `json:"repair"`
+	SelectedProvider string                 `json:"selected_provider"`
+	SelectedPlatform string                 `json:"selected_platform"`
+	Providers        []onboardingOptionJSON `json:"providers"`
+	Platforms        []onboardingOptionJSON `json:"platforms"`
+}
+
+type onboardingCompleteRequest struct {
+	Provider string `json:"provider"`
+	Platform string `json:"platform"`
+}
+
+type onboardingSecretRequest struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Secret string `json:"secret"`
+}
+
+type authStartRequest struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Method string `json:"method"`
+}
+
+type authSessionJSON struct {
+	SessionID               string `json:"session_id"`
+	Kind                    string `json:"kind"`
+	Name                    string `json:"name"`
+	Method                  string `json:"method"`
+	Status                  string `json:"status"`
+	UserCode                string `json:"user_code,omitempty"`
+	VerificationURI         string `json:"verification_uri,omitempty"`
+	VerificationURIComplete string `json:"verification_uri_complete,omitempty"`
+	AuthorizationURL        string `json:"authorization_url,omitempty"`
+	Error                   string `json:"error,omitempty"`
+}
+
 func strPtr(s string) *string {
 	if s == "" {
 		return nil

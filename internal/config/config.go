@@ -177,7 +177,7 @@ func (s Settings) OnboardingStatus(store *auth.Store) OnboardingStatus {
 		return OnboardingStatus{Reason: "onboarding configuration is missing or out of date"}
 	}
 	provider := CanonicalProviderID(state.Provider)
-	if !s.onboardingProvider(provider) {
+	if !s.SupportsOnboardingProvider(provider) {
 		return OnboardingStatus{Reason: "select one supported AI provider"}
 	}
 	if state.ProviderValidatedAt.IsZero() {
@@ -207,7 +207,7 @@ func (s Settings) OnboardingStatus(store *auth.Store) OnboardingStatus {
 	return OnboardingStatus{Complete: true}
 }
 
-func (s Settings) onboardingProvider(name string) bool {
+func (s Settings) SupportsOnboardingProvider(name string) bool {
 	if name == "" || name == "echo" || name == "ollama" {
 		return false
 	}

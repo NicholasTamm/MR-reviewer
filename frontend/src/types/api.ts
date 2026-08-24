@@ -96,3 +96,49 @@ export interface GitLabMergeRequestCatalog {
 
 export interface GitLabProjectSummary { project_id: number; project_path: string; web_url: string; }
 export interface GitLabProjectsResponse { projects: GitLabProjectSummary[]; }
+
+export interface GitHubProjectSummary { id: string; path: string; web_url: string; platform: string; }
+export interface GitHubProjectsResponse { projects: GitHubProjectSummary[]; }
+export interface GitHubPullRequest {
+  number: number;
+  title: string;
+  author: string;
+  source_branch: string;
+  target_branch: string;
+  updated_at: string;
+  web_url: string;
+  draft: boolean;
+}
+export interface GitHubProjectPRsResponse {
+  id: string;
+  path: string;
+  web_url: string;
+  pull_requests: GitHubPullRequest[];
+}
+
+export interface OnboardingOption {
+  id: string;
+  has_credential: boolean;
+  methods: string[];
+}
+export interface OnboardingStatus {
+  complete: boolean;
+  reason: string;
+  repair: boolean;
+  selected_provider: string;
+  selected_platform: string;
+  providers: OnboardingOption[];
+  platforms: OnboardingOption[];
+}
+export interface AuthSession {
+  session_id: string;
+  kind: string;
+  name: string;
+  method: string;
+  status: string;
+  user_code?: string;
+  verification_uri?: string;
+  verification_uri_complete?: string;
+  authorization_url?: string;
+  error?: string;
+}
