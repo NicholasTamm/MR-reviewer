@@ -18,9 +18,6 @@ func CompleteLogin(ctx context.Context, store *Store, provider string, tokens *T
 	}
 	message := "Logged in to " + provider
 	if provider == "openai" {
-		if tokens.IDToken == "" {
-			return "", fmt.Errorf("OpenAI login did not return an ID token needed to obtain an API key; use `mr-reviewer auth login openai --api-key` or try signing in again")
-		}
 		cred.AccountID = AccountIDFromToken(tokens.IDToken)
 		if cred.AccountID == "" {
 			cred.AccountID = AccountIDFromToken(tokens.Access)
@@ -28,7 +25,7 @@ func CompleteLogin(ctx context.Context, store *Store, provider string, tokens *T
 		if cred.AccountID != "" {
 			message += " (ChatGPT account detected)"
 		}
-		key, err := exchangeOpenAIAPIKey(ctx, tokens.IDToken)
+		key, err := exchangeOpenAIAPIKey(ctx, tokens.Access)
 		if err != nil {
 			return "", fmt.Errorf("OpenAI login could not obtain an API key for API-backed reviews; use `mr-reviewer auth login openai --api-key` or sign in again: %w", err)
 		}

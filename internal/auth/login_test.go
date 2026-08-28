@@ -76,6 +76,12 @@ func TestCompleteLoginOpenAIAccountAndExchange(t *testing.T) {
 		if vals.Get("requested_token") != "openai-api-key" {
 			t.Errorf("requested_token = %q", vals.Get("requested_token"))
 		}
+		if vals.Get("subject_token") != "oa" {
+			t.Errorf("subject_token = %q", vals.Get("subject_token"))
+		}
+		if vals.Get("subject_token_type") != "urn:ietf:params:oauth:token-type:access_token" {
+			t.Errorf("subject_token_type = %q", vals.Get("subject_token_type"))
+		}
 		sawExchange = true
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "sk-exchanged", "expires_in": 3600})
 	}))
@@ -107,11 +113,25 @@ func TestOpenAIExchangeAPIKey(t *testing.T) {
 		if r.URL.Path != "/oauth/token" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
+		body, _ := io.ReadAll(r.Body)
+		vals, _ := url.ParseQuery(string(body))
+		if vals.Get("grant_type") != "urn:ietf:params:oauth:grant-type:token-exchange" {
+			t.Errorf("grant_type = %q", vals.Get("grant_type"))
+		}
+		if vals.Get("requested_token") != "openai-api-key" {
+			t.Errorf("requested_token = %q", vals.Get("requested_token"))
+		}
+		if vals.Get("subject_token") != "access-tok" {
+			t.Errorf("subject_token = %q", vals.Get("subject_token"))
+		}
+		if vals.Get("subject_token_type") != "urn:ietf:params:oauth:token-type:access_token" {
+			t.Errorf("subject_token_type = %q", vals.Get("subject_token_type"))
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "sk-new", "expires_in": 1})
 	}))
 	defer srv.Close()
 	rewriteDefaultClientHost(t, srv.URL, "auth.openai.com")
-	key, err := OpenAIExchangeAPIKey(context.Background(), "id-tok")
+	key, err := OpenAIExchangeAPIKey(context.Background(), "access-tok")
 	if err != nil || key != "sk-new" {
 		t.Fatalf("key=%q err=%v", key, err)
 	}

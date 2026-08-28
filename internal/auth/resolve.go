@@ -134,10 +134,7 @@ func openAIAPIKey(ctx context.Context, store *Store) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("OpenAI requires a standard API key: set OPENAI_API_KEY or run `mr-reviewer auth login openai` again")
 	}
-	if cred.IDToken == "" {
-		return "", fmt.Errorf("OpenAI OAuth credentials have no ID token to exchange; run `mr-reviewer auth login openai` again")
-	}
-	key, err := exchangeOpenAIAPIKey(ctx, cred.IDToken)
+	key, err := exchangeOpenAIAPIKey(ctx, cred.Access)
 	if err != nil {
 		return "", fmt.Errorf("OpenAI OAuth credentials could not obtain a standard API key; run `mr-reviewer auth login openai` again: %w", err)
 	}

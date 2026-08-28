@@ -29,14 +29,14 @@ func OpenAIFlow() FlowConfig {
 	}
 }
 
-// OpenAIExchangeAPIKey trades the OAuth id_token for a standard OpenAI API key.
-func OpenAIExchangeAPIKey(ctx context.Context, idToken string) (string, error) {
+// OpenAIExchangeAPIKey trades the OAuth access token for a standard OpenAI API key.
+func OpenAIExchangeAPIKey(ctx context.Context, accessToken string) (string, error) {
 	resp, err := postForm(ctx, openaiIssuer+"/oauth/token", url.Values{
 		"grant_type":         {"urn:ietf:params:oauth:grant-type:token-exchange"},
 		"client_id":          {openaiClientID},
 		"requested_token":    {"openai-api-key"},
-		"subject_token":      {idToken},
-		"subject_token_type": {"urn:ietf:params:oauth:token-type:id_token"},
+		"subject_token":      {accessToken},
+		"subject_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
 	})
 	if err != nil {
 		return "", fmt.Errorf("API key exchange: %w", err)
