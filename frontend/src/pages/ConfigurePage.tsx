@@ -54,7 +54,7 @@ const MR_URL_PATTERN = /^https?:\/\/.+\/(merge_requests|pull)\/\d+/;
 
 export function ConfigurePage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { reset } = useReview();
 
   const queryPlatform = searchParams.get("platform") === "github" ? "github" : searchParams.get("platform") === "gitlab" ? "gitlab" : null;
@@ -299,12 +299,37 @@ export function ConfigurePage() {
           platform={platform}
           project={project}
           selected={selected}
-          onPlatform={() => {
+          onRoot={() => {
             setPlatform(null);
             setProject(null);
             setSelected(null);
+            setReviews([]);
+            setProjectSearch("");
+            setReviewSearch("");
+            setUrl("");
+            setPasteOpen(false);
+            setError(null);
+            setSearchParams({}, { replace: true });
           }}
-          onProject={() => setSelected(null)}
+          onPlatform={() => {
+            setProject(null);
+            setSelected(null);
+            setReviews([]);
+            setReviewSearch("");
+            setUrl("");
+            setPasteOpen(false);
+            setError(null);
+            setSearchParams(platform ? { platform } : {}, { replace: true });
+          }}
+          onProject={() => {
+            setSelected(null);
+            setUrl("");
+            setError(null);
+            const next = new URLSearchParams();
+            if (platform) next.set("platform", platform);
+            if (project) next.set("project", project.id);
+            setSearchParams(next, { replace: true });
+          }}
         />
       </header>
 
@@ -501,39 +526,51 @@ function Trail({
   platform,
   project,
   selected,
+  onRoot,
   onPlatform,
   onProject,
 }: {
   platform: Platform | null;
   project: ProjectItem | null;
   selected: ReviewItem | null;
+  onRoot: () => void;
   onPlatform: () => void;
   onProject: () => void;
 }) {
-  if (!platform && !selected) {
-    return <h1 className="text-xl font-medium tracking-tight">Start a review</h1>;
-  }
+  const platformLabel = platform === "github" ? "GitHub" : platform === "gitlab" ? "GitLab" : "PLATFORM";
+  const projectLabel = project?.path || "PROJECT";
+  const reviewLabel = selected?.id ? `#${selected.id}` : selected ? "URL" : "MR / PR";
+
   return (
     <nav aria-label="Selection" className="flex flex-wrap items-center gap-1 font-mono text-sm">
-      <button type="button" onClick={onPlatform} className="text-muted-foreground hover:text-foreground">
-        {platform ?? "url"}
-      </button>
-      {project && (
-        <>
-          <span className="text-muted-foreground/50">›</span>
-          <button type="button" onClick={onProject} className="text-muted-foreground hover:text-foreground">
-            {project.path}
-          </button>
-        </>
-      )}
-      {selected?.id && (
-        <>
-          <span className="text-muted-foreground/50">›</span>
-          <span className="text-foreground">#{selected.id}</span>
-        </>
+      <TrailCrumb onClick={onRoot}>MR-REVIEWER</TrailCrumb>
+      <TrailSep />
+      <TrailCrumb onClick={platform ? onPlatform : undefined}>{platformLabel}</TrailCrumb>
+      <TrailSep />
+      <TrailCrumb onClick={project ? onProject : undefined}>{projectLabel}</TrailCrumb>
+      <TrailSep />
+      {selected ? (
+        <span className="text-foreground">{reviewLabel}</span>
+      ) : (
+        <span className="text-muted-foreground/50">{reviewLabel}</span>
       )}
     </nav>
   );
+}
+
+function TrailCrumb({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
+  if (!onClick) {
+    return <span className="text-muted-foreground/50">{children}</span>;
+  }
+  return (
+    <button type="button" onClick={onClick} className="text-muted-foreground hover:text-foreground">
+      {children}
+    </button>
+  );
+}
+
+function TrailSep() {
+  return <span className="text-muted-foreground/50">›</span>;
 }
 
 function PlatformCard({
