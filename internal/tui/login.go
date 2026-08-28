@@ -8,7 +8,7 @@ import (
 )
 
 // PersistLogin writes credentials to the store. OAuth/device require full tokens
-// so OpenAI can run the id_token → API-key exchange. A missing token is an
+// so OpenAI can run the access_token → API-key exchange. A missing token is an
 // error — never report success without persisting.
 func PersistLogin(ctx context.Context, store *auth.Store, provider, method string, tokens *auth.Tokens, apiKey string) (string, error) {
 	if store == nil {

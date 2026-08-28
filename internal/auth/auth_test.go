@@ -195,7 +195,12 @@ func TestCompleteOpenAILoginPersistsExchangedAPIKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := exchangeOpenAIAPIKey
-	exchangeOpenAIAPIKey = func(context.Context, string) (string, error) { return "exchanged-key", nil }
+	exchangeOpenAIAPIKey = func(_ context.Context, accessToken string) (string, error) {
+		if accessToken != "oauth-access" {
+			t.Fatalf("access token = %q", accessToken)
+		}
+		return "exchanged-key", nil
+	}
 	t.Cleanup(func() { exchangeOpenAIAPIKey = previous })
 
 	message, err := CompleteLogin(context.Background(), st, "openai", &Tokens{Access: "oauth-access", Refresh: "refresh", IDToken: "id-token", ExpiresAt: time.Now().Add(time.Hour)})
@@ -229,16 +234,16 @@ func TestCompleteOpenAILoginExchangeFailureDoesNotPersistOAuthToken(t *testing.T
 	}
 }
 
-func TestBearerSourceOpenAIDoesNotUseOAuthAccessToken(t *testing.T) {
+func TestBearerSourceOpenAIRejectsMissingOAuthAccessToken(t *testing.T) {
 	st, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Set("openai", Credential{Type: TypeOAuth, Access: "chatgpt-oauth-token", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+	if err := st.Set("openai", Credential{Type: TypeOAuth, ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	key, err := BearerSource("openai", st)(context.Background())
-	if err == nil || key != "" || !strings.Contains(err.Error(), "no ID token") {
+	if err == nil || key != "" || !strings.Contains(err.Error(), "requires a standard API key") {
 		t.Fatalf("key=%q err=%v", key, err)
 	}
 }
@@ -259,9 +264,9 @@ func TestBearerSourceOpenAIExchangesAfterRefresh(t *testing.T) {
 	refreshFlows["openai"] = FlowConfig{TokenURL: refreshServer.URL, ClientID: "test-client"}
 	t.Cleanup(func() { refreshFlows["openai"] = previousFlow })
 	previousExchange := exchangeOpenAIAPIKey
-	exchangeOpenAIAPIKey = func(_ context.Context, idToken string) (string, error) {
-		if idToken != "new-id" {
-			t.Fatalf("ID token = %q", idToken)
+	exchangeOpenAIAPIKey = func(_ context.Context, accessToken string) (string, error) {
+		if accessToken != "new-access" {
+			t.Fatalf("access token = %q", accessToken)
 		}
 		return "refreshed-api-key", nil
 	}
