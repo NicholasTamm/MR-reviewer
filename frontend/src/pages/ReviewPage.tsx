@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Send, Loader2, AlertCircle, RotateCcw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
   postReview,
   ApiError,
 } from "@/lib/api";
+import { configurePath } from "@/lib/reviewNav";
 import type { JobStatus } from "@/types/api";
 
 const POLL_INTERVAL_MS = 2000;
@@ -45,6 +46,7 @@ function getErrorTitle(errorType: string | null): string {
 
 export function ReviewPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { jobId } = useParams<{ jobId: string }>();
   const {
     summary,
@@ -66,6 +68,7 @@ export function ReviewPage() {
   const [currentStatus, setCurrentStatus] = useState<JobStatus["status"]>("pending");
   const [jobError, setJobError] = useState<string | null>(null);
   const [errorType, setErrorType] = useState<string | null>(null);
+  const [jobUrl, setJobUrl] = useState(searchParams.get("url") ?? "");
 
   const pollStartRef = useRef<number>(Date.now());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -99,6 +102,7 @@ export function ReviewPage() {
         setCurrentStatus(status.status);
         setJobError(status.error ?? null);
         setProgressMessage(status.progress ?? "Processing...");
+        if (status.url) setJobUrl(status.url);
 
         if (status.status === "complete" || status.status === "posted") {
           stopPolling();
@@ -287,6 +291,11 @@ export function ReviewPage() {
 
   const approvedCount = comments.filter((c) => c.approved).length;
   const rejectedCount = comments.filter((c) => !c.approved).length;
+  const configureReturn = configurePath({
+    platform: searchParams.get("platform"),
+    project: searchParams.get("project"),
+    url: searchParams.get("url") || jobUrl,
+  });
 
   // --- Polling phase ---
   if (phase === "polling") {
@@ -332,7 +341,7 @@ export function ReviewPage() {
           <Button variant="outline" onClick={handleContinueWaiting}>
             Keep Waiting
           </Button>
-          <Button variant="outline" onClick={() => navigate("/")}>
+          <Button variant="outline" onClick={() => navigate(configureReturn)}>
             Start Over
           </Button>
         </div>
@@ -351,7 +360,7 @@ export function ReviewPage() {
             This review job does not exist or has expired.
           </p>
         </div>
-        <Button variant="outline" onClick={() => navigate("/")}>
+        <Button variant="outline" onClick={() => navigate(configureReturn)}>
           Back to Configure
         </Button>
       </div>
@@ -367,7 +376,7 @@ export function ReviewPage() {
           <h2 className="text-lg font-medium text-foreground">{getErrorTitle(errorType)}</h2>
           <p className="text-sm text-muted-foreground">{errorMessage}</p>
         </div>
-        <Button variant="outline" onClick={() => navigate("/")}>
+        <Button variant="outline" onClick={() => navigate(configureReturn)}>
           <RotateCcw className="h-4 w-4 mr-2" />
           Try Again
         </Button>

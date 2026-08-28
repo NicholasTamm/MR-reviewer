@@ -22,7 +22,8 @@ import {
   resolveDefaults,
   type ReviewDefaults,
 } from "@/lib/defaults";
-import { pickModel } from "@/lib/providers";
+import { pickModel, providerLabel, settingsFocusFor } from "@/lib/providers";
+import { selectionSearch } from "@/lib/reviewNav";
 import {
   ApiError,
   getConfigDefaults,
@@ -89,6 +90,7 @@ export function ConfigurePage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingProvider, setPendingProvider] = useState<string | null>(null);
 
   const stage: Stage = selected ? "ready" : project ? "review" : platform ? "project" : "platform";
 
@@ -212,6 +214,7 @@ export function ConfigurePage() {
   const activeUrl = selected?.url || url;
   const isUrlValid = MR_URL_PATTERN.test(activeUrl);
   const showUrlError = urlTouched && url.length > 0 && !isUrlValid;
+  const catalogProvider = providerModels.find((item) => item.provider === config.provider);
   const visibleReviews = useMemo(() => {
     const q = reviewSearch.trim().toLowerCase();
     if (!q) return reviews;
@@ -268,6 +271,11 @@ export function ConfigurePage() {
       setError("Select a model before running the review.");
       return;
     }
+    if (catalogProvider && !catalogProvider.available) {
+      setConfigOpen(true);
+      setPendingProvider(config.provider);
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     try {
@@ -280,7 +288,11 @@ export function ConfigurePage() {
         parallel: config.parallel,
         auto_post: config.autoPost,
       });
-      navigate(`/review/${result.job_id}`);
+      navigate(`/review/${result.job_id}${selectionSearch({
+        platform,
+        project: project?.id,
+        url: activeUrl,
+      })}`);
     } catch (err) {
       if (err instanceof ApiError || err instanceof Error) setError(err.message);
       else setError("An unexpected error occurred");
@@ -484,6 +496,7 @@ export function ConfigurePage() {
                   modelsLoading={modelsLoading}
                   modelsError={modelsError}
                   onRetryModels={() => setModelRequest((n) => n + 1)}
+                  onUnavailableProvider={setPendingProvider}
                 />
                 <p className="text-xs text-muted-foreground">
                   Defaults live in <Link to="/settings" className="text-primary hover:underline">Settings</Link>.
@@ -500,7 +513,7 @@ export function ConfigurePage() {
 
           <Button
             onClick={handleSubmit}
-            disabled={isSubmitting || !config.model}
+            disabled={isSubmitting || !config.model || catalogProvider?.available === false}
             className="h-11 w-full text-sm font-medium"
             size="lg"
           >
@@ -518,6 +531,70 @@ export function ConfigurePage() {
           </Button>
         </section>
       )}
+
+      {pendingProvider && (
+        <UnconfiguredProviderModal
+          provider={pendingProvider}
+          onCancel={() => setPendingProvider(null)}
+          onConfirm={() => {
+            const params = new URLSearchParams({ provider: pendingProvider });
+            const focus = settingsFocusFor(pendingProvider);
+            if (focus) params.set("focus", focus);
+            setPendingProvider(null);
+            navigate(`/settings?${params}`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function UnconfiguredProviderModal({
+  provider,
+  onCancel,
+  onConfirm,
+}: {
+  provider: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const label = providerLabel(provider);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unconfigured-provider-title"
+        className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-surface p-5 shadow-lg"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="space-y-2">
+          <h2 id="unconfigured-provider-title" className="text-base font-medium">
+            Configure {label}?
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {label} is not configured. Open Settings to add credentials?
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm}>Configure</Button>
+        </div>
+      </div>
     </div>
   );
 }

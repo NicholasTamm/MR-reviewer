@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ReviewConfigFields } from "@/components/ReviewConfigFields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,8 @@ import {
   saveLocalDefaults,
   type ReviewDefaults,
 } from "@/lib/defaults";
-import { pickModel } from "@/lib/providers";
+import { pickModel, settingsFocusFor } from "@/lib/providers";
+import { cn } from "@/lib/utils";
 import type { ProviderModels } from "@/types/api";
 
 const CREDENTIALS = [
@@ -28,6 +30,8 @@ const CREDENTIALS = [
 
 export function SettingsPage() {
   const electronAPI = window.electronAPI;
+  const [searchParams] = useSearchParams();
+  const focusId = searchParams.get("focus") || settingsFocusFor(searchParams.get("provider") ?? "");
   const [config, setConfig] = useState<ReviewDefaults>(resolveDefaults(null, loadLocalDefaults()));
   const [hosts, setHosts] = useState({
     MR_REVIEWER_GITLAB_URL: "",
@@ -96,6 +100,14 @@ export function SettingsPage() {
     }));
   }, [modelsLoading, providers, config.provider, config.model]);
 
+  useEffect(() => {
+    if (!focusId) return;
+    const node = document.getElementById(focusId);
+    if (!(node instanceof HTMLElement)) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    node.focus();
+  }, [focusId, electronAPI]);
+
   const saveDefaults = async () => {
     setSaving(true);
     setMessage("");
@@ -148,21 +160,27 @@ export function SettingsPage() {
               <p className="mt-1 text-sm text-muted-foreground">Optional overrides for self-hosted endpoints.</p>
             </div>
             <HostField
+              id="MR_REVIEWER_GITLAB_URL"
               label="GitLab URL"
               value={hosts.MR_REVIEWER_GITLAB_URL}
               placeholder="https://gitlab.com"
+              focused={focusId === "MR_REVIEWER_GITLAB_URL"}
               onChange={(value) => setHosts((current) => ({ ...current, MR_REVIEWER_GITLAB_URL: value }))}
             />
             <HostField
+              id="MR_REVIEWER_GITHUB_API"
               label="GitHub API"
               value={hosts.MR_REVIEWER_GITHUB_API}
               placeholder="https://api.github.com"
+              focused={focusId === "MR_REVIEWER_GITHUB_API"}
               onChange={(value) => setHosts((current) => ({ ...current, MR_REVIEWER_GITHUB_API: value }))}
             />
             <HostField
+              id="OLLAMA_HOST"
               label="Ollama host"
               value={hosts.OLLAMA_HOST}
               placeholder="http://localhost:11434"
+              focused={focusId === "OLLAMA_HOST"}
               onChange={(value) => setHosts((current) => ({ ...current, OLLAMA_HOST: value }))}
             />
           </section>
@@ -187,7 +205,7 @@ export function SettingsPage() {
                     value={secrets[item.key] ?? ""}
                     placeholder={present[item.key] ? "••••••••" : "Not configured"}
                     onChange={(event) => setSecrets((current) => ({ ...current, [item.key]: event.target.value }))}
-                    className="h-9 bg-surface"
+                    className={cn("h-9 bg-surface", focusId === item.key && "ring-2 ring-ring")}
                   />
                 </div>
                 <Button
@@ -219,24 +237,29 @@ export function SettingsPage() {
 }
 
 function HostField({
+  id,
   label,
   value,
   placeholder,
+  focused,
   onChange,
 }: {
+  id: string;
   label: string;
   value: string;
   placeholder: string;
+  focused?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm text-muted-foreground">{label}</Label>
+      <Label htmlFor={id} className="text-sm text-muted-foreground">{label}</Label>
       <Input
+        id={id}
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 font-mono text-sm bg-surface"
+        className={cn("h-9 font-mono text-sm bg-surface", focused && "ring-2 ring-ring")}
       />
     </div>
   );

@@ -35,9 +35,23 @@ export function canonicalProvider(id: string): string {
   return name === "gemini" ? "google" : name;
 }
 
+const PROVIDER_FOCUS: Record<string, string> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+  xai: "XAI_API_KEY",
+  google: "GEMINI_API_KEY",
+  kimi: "KIMI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  ollama: "OLLAMA_HOST",
+};
+
 export function providerLabel(id: string): string {
   const name = canonicalProvider(id);
   return PROVIDER_LABELS[name] ?? name;
+}
+
+export function settingsFocusFor(provider: string): string {
+  return PROVIDER_FOCUS[canonicalProvider(provider)] ?? "";
 }
 
 export function defaultModelFor(provider: string): string {
