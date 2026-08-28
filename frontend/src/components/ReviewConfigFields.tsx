@@ -16,6 +16,7 @@ type ReviewConfigFieldsProps = {
   modelsLoading?: boolean;
   modelsError?: string | null;
   onRetryModels?: () => void;
+  onUnavailableProvider?: (provider: string) => void;
 };
 
 export function ReviewConfigFields({
@@ -25,6 +26,7 @@ export function ReviewConfigFields({
   modelsLoading = false,
   modelsError = null,
   onRetryModels,
+  onUnavailableProvider,
 }: ReviewConfigFieldsProps) {
   const catalog = providers.length > 0 ? providers : [{ provider: value.provider, models: [], available: true, error: null }];
   const active = catalog.find((item) => item.provider === value.provider) ?? catalog[0];
@@ -50,13 +52,24 @@ export function ReviewConfigFields({
               <button
                 key={item.provider}
                 type="button"
-                onClick={() => patch({ provider: item.provider, model: "" })}
+                aria-label={
+                  item.available
+                    ? providerLabel(item.provider)
+                    : `${providerLabel(item.provider)} (not configured)`
+                }
+                onClick={() => {
+                  if (!item.available && onUnavailableProvider) {
+                    onUnavailableProvider(item.provider);
+                    return;
+                  }
+                  patch({ provider: item.provider, model: "" });
+                }}
                 className={cn(
                   "rounded-md border px-3 py-1.5 font-mono text-xs transition-colors",
                   selected
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border bg-surface text-muted-foreground hover:border-primary/40 hover:text-foreground",
-                  !item.available && !selected && "opacity-60",
+                  !item.available && "opacity-40",
                 )}
               >
                 {providerLabel(item.provider)}
