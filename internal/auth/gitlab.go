@@ -7,11 +7,18 @@ import (
 	"strings"
 )
 
-const gitLabOAuthClientIDEnv = "GITLAB_OAUTH_CLIENT_ID"
+const (
+	gitLabOAuthClientIDEnv = "GITLAB_OAUTH_CLIENT_ID"
+	gitLabOAuthClientID    = "299626a83068c088b7cc99be9411c82afce5cfc89b3a9810e6167c3944457aa9"
+)
 
-// GitLabOAuthClientID returns the explicitly configured public OAuth client ID.
-// MR Reviewer deliberately does not ship a shared GitLab OAuth application.
-func GitLabOAuthClientID() string { return strings.TrimSpace(os.Getenv(gitLabOAuthClientIDEnv)) }
+// GitLabOAuthClientID returns the built-in public OAuth client ID or an override.
+func GitLabOAuthClientID() string {
+	if clientID := strings.TrimSpace(os.Getenv(gitLabOAuthClientIDEnv)); clientID != "" {
+		return clientID
+	}
+	return gitLabOAuthClientID
+}
 
 func GitLabFlow(clientID string) (FlowConfig, error) {
 	clientID = strings.TrimSpace(clientID)

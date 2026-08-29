@@ -488,6 +488,42 @@ func TestAuthorizationFailuresStayOnAuthViewAndOfferRetry(t *testing.T) {
 	}
 }
 
+func TestAuthOAuthProviderShowsMethodMenu(t *testing.T) {
+	m := testModel(t)
+	m = drain(t, m, m.Init())
+	m, _ = applyKey(m, key('a'))
+
+	for m.authList[m.authCursor] != "gitlab" {
+		m, _ = applyKey(m, key('j'))
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.ViewName() != ViewAuthMethod || !strings.Contains(m.render(), "Personal access token") || !strings.Contains(m.render(), "OAuth") {
+		t.Fatalf("auth method menu =\n%s", m.render())
+	}
+
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.input != inputAPIKey || !strings.Contains(m.Status(), "personal access token") {
+		t.Fatalf("PAT selection input=%v status=%q", m.input, m.Status())
+	}
+}
+
+func TestAuthOAuthProviderSelectsOAuth(t *testing.T) {
+	t.Setenv("GITHUB_OAUTH_CLIENT_ID", "test-client")
+	m := testModel(t)
+	m = drain(t, m, m.Init())
+	m, _ = applyKey(m, key('a'))
+
+	for m.authList[m.authCursor] != "github" {
+		m, _ = applyKey(m, key('j'))
+	}
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	m, _ = applyKey(m, key('j'))
+	_, cmd := applyKey(m, special(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal("OAuth selection must start the device login command")
+	}
+}
+
 func TestReviewErrorView(t *testing.T) {
 	m := New(Deps{
 		Settings: config.Settings{Provider: "echo", MaxComments: 10, Focus: []string{"bugs"}},
@@ -599,7 +635,10 @@ func TestOnboardingRoutesIncompleteStateAndCompletesWithKeyboard(t *testing.T) {
 			Provider: "anthropic", GitHubAPI: "https://api.github.com", GitLabURL: "https://gitlab.com",
 			Focus: []string{"bugs"}, MaxComments: 10,
 		},
-		SaveSettings:    func(next config.Settings) error { saved = next; return nil },
+		SaveSettings: func(next config.Settings) error { saved = next; return nil },
+		Login: func(provider, method, secret string) (string, error) {
+			return PersistLogin(context.Background(), store, provider, method, nil, secret)
+		},
 		CheckOnboarding: true,
 	})
 	if m.ViewName() != ViewOnboarding {
@@ -620,14 +659,18 @@ func TestOnboardingRoutesIncompleteStateAndCompletesWithKeyboard(t *testing.T) {
 		t.Fatalf("after provider step=%d input=%d", m.onboardingStep, m.input)
 	}
 	m, _ = applyKey(m, special(tea.KeyEnter))
-	if m.input != inputOnboardingSecret || !strings.Contains(m.Status(), "github") {
-		t.Fatalf("platform prompt input=%d status=%q", m.input, m.Status())
+	if m.ViewName() != ViewAuthMethod || !strings.Contains(m.render(), "Personal access token") || !strings.Contains(m.render(), "OAuth") {
+		t.Fatalf("platform login methods =\n%s", m.render())
 	}
 	m, _ = applyKey(m, special(tea.KeyEsc))
 	if m.onboardingStep != onboardingPlatform || !strings.Contains(m.render(), "Select a Git platform") {
 		t.Fatalf("cancel platform credential step=%d view=\n%s", m.onboardingStep, m.render())
 	}
 	m, _ = applyKey(m, special(tea.KeyEnter))
+	m, _ = applyKey(m, special(tea.KeyEnter))
+	if m.ViewName() != ViewAuth || m.input != inputAPIKey {
+		t.Fatalf("platform PAT prompt view=%s input=%d", m.ViewName(), m.input)
+	}
 	for _, r := range "platform-secret" {
 		m, _ = applyKey(m, key(r))
 	}

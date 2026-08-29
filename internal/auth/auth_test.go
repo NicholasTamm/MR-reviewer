@@ -365,6 +365,17 @@ func TestGitLabFlowRequiresExplicitClientID(t *testing.T) {
 	}
 }
 
+func TestGitLabOAuthClientIDUsesDefaultAndOverride(t *testing.T) {
+	t.Setenv(gitLabOAuthClientIDEnv, "")
+	if got := GitLabOAuthClientID(); got != gitLabOAuthClientID {
+		t.Fatalf("default client ID = %q", got)
+	}
+	t.Setenv(gitLabOAuthClientIDEnv, "custom-client-id")
+	if got := GitLabOAuthClientID(); got != "custom-client-id" {
+		t.Fatalf("override client ID = %q", got)
+	}
+}
+
 func TestGitHubDeviceFlowRequiresExplicitClientIDAndRepoScope(t *testing.T) {
 	if _, err := GitHubDeviceFlow(""); err == nil || !strings.Contains(err.Error(), "GITHUB_OAUTH_CLIENT_ID") || !strings.Contains(err.Error(), "Device Flow") {
 		t.Fatalf("missing client ID error = %v", err)
@@ -375,6 +386,17 @@ func TestGitHubDeviceFlowRequiresExplicitClientIDAndRepoScope(t *testing.T) {
 	}
 	if flow.ClientID != "client-id" || flow.Scope != "repo" || flow.DeviceURL != "https://github.com/login/device/code" || flow.TokenURL != "https://github.com/login/oauth/access_token" {
 		t.Fatalf("GitHubDeviceFlow = %+v", flow)
+	}
+}
+
+func TestGitHubOAuthClientIDUsesDefaultAndOverride(t *testing.T) {
+	t.Setenv(gitHubOAuthClientIDEnv, "")
+	if got := GitHubOAuthClientID(); got != gitHubOAuthClientID {
+		t.Fatalf("default client ID = %q", got)
+	}
+	t.Setenv(gitHubOAuthClientIDEnv, "custom-client-id")
+	if got := GitHubOAuthClientID(); got != "custom-client-id" {
+		t.Fatalf("override client ID = %q", got)
 	}
 }
 

@@ -30,6 +30,7 @@ const (
 	ViewOnboarding
 	ViewProjects
 	ViewReviews
+	ViewAuthMethod
 )
 
 func (v View) String() string {
@@ -56,6 +57,8 @@ func (v View) String() string {
 		return "projects"
 	case ViewReviews:
 		return "reviews"
+	case ViewAuthMethod:
+		return "auth method"
 	default:
 		return "unknown"
 	}
@@ -148,16 +151,18 @@ type Model struct {
 	reviewing bool
 
 	// auth
-	authList    []string
-	authCursor  int
-	pending     *auth.PendingLogin
-	authProv    string
-	authMethod  string
-	authCode    *auth.DeviceCode
-	authCtx     context.Context
-	authCancel  context.CancelFunc
-	authAttempt int
-	authFailed  bool
+	authList         []string
+	authCursor       int
+	pending          *auth.PendingLogin
+	authProv         string
+	authMethod       string
+	authMethodCursor int
+	onboardingAuth   bool
+	authCode         *auth.DeviceCode
+	authCtx          context.Context
+	authCancel       context.CancelFunc
+	authAttempt      int
+	authFailed       bool
 
 	// injectable for tests / wiring
 	loadProjects    func(platform string) ([]review.Project, error)
@@ -487,6 +492,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.view = ViewLink
 			return m, m.fetchModels()
 		}
+		if m.onboardingAuth {
+			m.onboardingAuth = false
+			m.view = ViewOnboarding
+			if m.onboardingStep == onboardingProvider {
+				return m.finishProviderOnboarding()
+			}
+			return m.finishPlatformOnboarding()
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
@@ -552,6 +565,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.keysConfirm(msg)
 	case ViewAuth:
 		return m.keysAuth(msg)
+	case ViewAuthMethod:
+		return m.keysAuthMethod(msg)
 	case ViewConfig:
 		return m.keysConfig(msg)
 	case ViewOnboarding:
@@ -1010,16 +1025,6 @@ func (m Model) keysConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) leaveAuthView() Model {
-	if m.configureAuth {
-		m.configureAuth = false
-		m.view = ViewLink
-	} else {
-		m.view = ViewDashboard
-	}
-	return m
-}
-
 func (m Model) startConfigureAuth() (tea.Model, tea.Cmd) {
 	m.configureAuth = true
 	m.authProv = m.provider
@@ -1061,7 +1066,7 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.input = inputNone
 			m.authFailed = false
 			m.status = ""
-			m = m.leaveAuthView()
+			m = m.leaveAuth()
 		}
 		return m, nil
 	}
@@ -1073,13 +1078,13 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.authFailed = false
 			m.authCode = nil
 			m.status = ""
-			m = m.leaveAuthView()
+			m = m.leaveAuth()
 		}
 		return m, nil
 	}
 	switch {
 	case msg.Code == tea.KeyEsc:
-		m = m.leaveAuthView()
+		m = m.leaveAuth()
 		return m, nil
 	case msg.Code == tea.KeyDown || keyText(msg) == "j":
 		if m.authCursor < len(m.authList)-1 {
@@ -1104,28 +1109,67 @@ func (m Model) keysAuth(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if provider := m.authList[m.authCursor]; provider == "xai" || provider == "gitlab" || provider == "github" {
 			return m.startLogin(provider, "device")
 		}
-	case keyText(msg) == "k":
-		if provider := m.authList[m.authCursor]; provider == "gitlab" || provider == "github" {
-			m.authProv = provider
-			m.input = inputAPIKey
-			m.editBuf = ""
-			m.status = "paste " + provider + " personal access token, enter to save"
-			return m, nil
-		}
 	case msg.Code == tea.KeyEnter:
 		prov := m.authList[m.authCursor]
-		switch prov {
-		case "github":
-			return m.startLogin(prov, "device")
-		case "openai", "xai", "gitlab":
-			return m.startLogin(prov, "oauth")
-		default:
+		if supportsOAuth(prov) {
 			m.authProv = prov
-			m.input = inputAPIKey
-			m.editBuf = ""
-			m.status = "paste " + prov + " API key, enter to save"
+			m.authMethodCursor = 0
+			m.view = ViewAuthMethod
 			return m, nil
 		}
+		return m.startAPIKeyLogin(prov)
+	}
+	return m, nil
+}
+
+func supportsOAuth(provider string) bool {
+	switch provider {
+	case "xai", "gitlab", "github":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m Model) keysAuthMethod(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEsc:
+		if m.onboardingAuth {
+			m = m.leaveAuth()
+		} else {
+			m.view = ViewAuth
+		}
+		return m, nil
+	case msg.Code == tea.KeyDown || keyText(msg) == "j" || msg.Code == tea.KeyTab:
+		m.authMethodCursor = (m.authMethodCursor + 1) % 2
+	case msg.Code == tea.KeyUp || keyText(msg) == "k":
+		m.authMethodCursor = (m.authMethodCursor + 1) % 2
+	case keyText(msg) == "d":
+		if m.authProv == "xai" || m.authProv == "gitlab" || m.authProv == "github" {
+			m.view = ViewAuth
+			return m.startLogin(m.authProv, "device")
+		}
+	case msg.Code == tea.KeyEnter:
+		m.view = ViewAuth
+		if m.authMethodCursor == 0 {
+			return m.startAPIKeyLogin(m.authProv)
+		}
+		if m.authProv == "github" {
+			return m.startLogin(m.authProv, "device")
+		}
+		return m.startLogin(m.authProv, "oauth")
+	}
+	return m, nil
+}
+
+func (m Model) startAPIKeyLogin(provider string) (tea.Model, tea.Cmd) {
+	m.authProv = provider
+	m.input = inputAPIKey
+	m.editBuf = ""
+	if provider == "gitlab" || provider == "github" {
+		m.status = "paste " + provider + " personal access token, enter to save"
+	} else {
+		m.status = "paste " + provider + " API key, enter to save"
 	}
 	return m, nil
 }
@@ -1190,10 +1234,7 @@ func (m Model) finishProviderOnboarding() (tea.Model, tea.Cmd) {
 		extraEnv = custom.APIKeyEnv
 	}
 	if _, ok := auth.CredentialFingerprint(provider, m.store, extraEnv); !ok {
-		m.onboardingStep = onboardingProvider
-		m.input = inputOnboardingSecret
-		m.status = "enter an API key for " + provider
-		return m, nil
+		return m.beginOnboardingAuth(provider)
 	}
 	m.onboardingProvider = provider
 	m.onboardingStep = onboardingPlatform
@@ -1210,10 +1251,7 @@ func (m Model) finishPlatformOnboarding() (tea.Model, tea.Cmd) {
 	}
 	fingerprint, ok := auth.PlatformCredentialFingerprint(target, m.store)
 	if !ok {
-		m.onboardingStep = onboardingSecret
-		m.input = inputOnboardingSecret
-		m.status = "enter a personal access token for " + m.onboardingPlatform
-		return m, nil
+		return m.beginOnboardingAuth(m.onboardingPlatform)
 	}
 	providerFingerprint, ok := m.providerFingerprint()
 	if !ok {
@@ -1272,6 +1310,36 @@ func (m Model) onboardingChoices() []string {
 		choices = append(choices, name)
 	}
 	return choices
+}
+
+func (m Model) beginOnboardingAuth(provider string) (tea.Model, tea.Cmd) {
+	m.authProv = provider
+	if !supportsOAuth(provider) {
+		m.input = inputOnboardingSecret
+		m.status = "enter an API key for " + provider
+		return m, nil
+	}
+	m.onboardingAuth = true
+	m.authMethodCursor = 0
+	m.status = ""
+	m.view = ViewAuthMethod
+	return m, nil
+}
+
+func (m Model) leaveAuth() Model {
+	m.pending = nil
+	m.authCode = nil
+	m.input = inputNone
+	if m.configureAuth {
+		m.configureAuth = false
+		m.view = ViewLink
+	} else if m.onboardingAuth {
+		m.onboardingAuth = false
+		m.view = ViewOnboarding
+	} else {
+		m.view = ViewDashboard
+	}
+	return m
 }
 
 func (m Model) saveSettings(next config.Settings) error {

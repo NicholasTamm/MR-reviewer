@@ -55,6 +55,11 @@ func (d DeviceConfig) RequestCode(ctx context.Context) (*DeviceCode, error) {
 	if code.DeviceCode == "" || code.UserCode == "" || code.VerificationURI == "" {
 		return nil, fmt.Errorf("device code response missing required fields")
 	}
+	verificationURL := code.VerificationURIComplete
+	if verificationURL == "" {
+		verificationURL = code.VerificationURI
+	}
+	openBrowser(verificationURL)
 	return &code, nil
 }
 
