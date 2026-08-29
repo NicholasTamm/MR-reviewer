@@ -7,11 +7,18 @@ import (
 	"strings"
 )
 
-const gitHubOAuthClientIDEnv = "GITHUB_OAUTH_CLIENT_ID"
+const (
+	gitHubOAuthClientIDEnv = "GITHUB_OAUTH_CLIENT_ID"
+	gitHubOAuthClientID    = "Ov23ligm0mrgd7RnRIYU"
+)
 
-// GitHubOAuthClientID returns the explicitly configured public OAuth client ID.
-// MR Reviewer deliberately does not ship a shared GitHub OAuth application.
-func GitHubOAuthClientID() string { return strings.TrimSpace(os.Getenv(gitHubOAuthClientIDEnv)) }
+// GitHubOAuthClientID returns the built-in public OAuth client ID or an override.
+func GitHubOAuthClientID() string {
+	if clientID := strings.TrimSpace(os.Getenv(gitHubOAuthClientIDEnv)); clientID != "" {
+		return clientID
+	}
+	return gitHubOAuthClientID
+}
 
 func GitHubDeviceFlow(clientID string) (DeviceConfig, error) {
 	clientID = strings.TrimSpace(clientID)

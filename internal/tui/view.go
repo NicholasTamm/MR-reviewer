@@ -49,6 +49,8 @@ func (m Model) render() string {
 		b.WriteString(m.viewConfirm())
 	case ViewAuth:
 		b.WriteString(m.viewAuth())
+	case ViewAuthMethod:
+		b.WriteString(m.viewAuthMethod())
 	case ViewConfig:
 		b.WriteString(m.viewConfig())
 	case ViewOnboarding:
@@ -289,8 +291,31 @@ func (m Model) viewAuth() string {
 		b.WriteString("\n  key: " + strings.Repeat("•", len(m.editBuf)) + "█\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  enter login  k platform PAT  d device (xAI/GitLab/GitHub)  x logout  esc back"))
+	b.WriteString(mutedStyle.Render("  enter choose login method  d device (xAI/GitLab/GitHub)  x logout  esc back"))
 	b.WriteString("\n")
+	return b.String()
+}
+
+func (m Model) viewAuthMethod() string {
+	var b strings.Builder
+	b.WriteString("  " + m.authProv + " login\n\n")
+	methods := []string{"API key", "OAuth"}
+	if m.authProv == "gitlab" || m.authProv == "github" {
+		methods[0] = "Personal access token"
+	}
+	for i, method := range methods {
+		line := "  " + method
+		if i == m.authMethodCursor {
+			b.WriteString(selStyle.Render(line) + "\n")
+		} else {
+			b.WriteString(line + "\n")
+		}
+	}
+	if m.authProv == "xai" || m.authProv == "gitlab" || m.authProv == "github" {
+		b.WriteString("\n" + mutedStyle.Render("  enter select  d device OAuth  esc back") + "\n")
+	} else {
+		b.WriteString("\n" + mutedStyle.Render("  enter select  esc back") + "\n")
+	}
 	return b.String()
 }
 

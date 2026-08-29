@@ -21,6 +21,7 @@ func TestXAIDeviceFlowShape(t *testing.T) {
 }
 
 func TestDeviceRequestCodeSuccess(t *testing.T) {
+	opened := stubOpenBrowser(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s", r.Method)
@@ -39,6 +40,9 @@ func TestDeviceRequestCodeSuccess(t *testing.T) {
 	code, err := DeviceConfig{DeviceURL: srv.URL, TokenURL: srv.URL + "/token", ClientID: "cid", Scope: "s"}.RequestCode(context.Background())
 	if err != nil || code.DeviceCode != "dev-code" || code.UserCode != "USER-1" {
 		t.Fatalf("%+v %v", code, err)
+	}
+	if len(*opened) != 1 || (*opened)[0] != "https://verify.test/" {
+		t.Fatalf("opened = %v", *opened)
 	}
 }
 

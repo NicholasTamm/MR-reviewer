@@ -157,28 +157,6 @@ func TestRunAuthLoginGitLabAndGitHubAPIKeyResolves(t *testing.T) {
 	}
 }
 
-func TestRunAuthGitLabOAuthRequiresRegisteredClientID(t *testing.T) {
-	withAuthStore(t)
-	var out, errb bytes.Buffer
-	if code := RunAuth([]string{"login", "gitlab"}, &out, &errb); code == 0 {
-		t.Fatal("GitLab OAuth login without a client ID should fail")
-	}
-	if !strings.Contains(errb.String(), "GITLAB_OAUTH_CLIENT_ID") || !strings.Contains(errb.String(), "user_settings/applications") {
-		t.Fatalf("error = %q", errb.String())
-	}
-}
-
-func TestRunAuthGitHubOAuthRequiresRegisteredClientID(t *testing.T) {
-	withAuthStore(t)
-	var out, errb bytes.Buffer
-	if code := RunAuth([]string{"login", "github"}, &out, &errb); code == 0 {
-		t.Fatal("GitHub OAuth login without a client ID should fail")
-	}
-	if !strings.Contains(errb.String(), "GITHUB_OAUTH_CLIENT_ID") || !strings.Contains(errb.String(), "Device Flow") {
-		t.Fatalf("error = %q", errb.String())
-	}
-}
-
 func TestRunAuthPlatformStatusAndLogoutUseScopedCredentials(t *testing.T) {
 	_ = withAuthStore(t)
 	var out, errb bytes.Buffer
@@ -330,6 +308,10 @@ func TestParseAPIKeyFlag(t *testing.T) {
 	used, val = parseAPIKeyFlag([]string{"--api-key=tok2"})
 	if !used || val != "tok2" {
 		t.Fatalf("equals: %v %q", used, val)
+	}
+	used, val = parseAPIKeyFlag([]string{"--pat", "glpat-token"})
+	if !used || val != "glpat-token" {
+		t.Fatalf("--pat: %v %q", used, val)
 	}
 }
 

@@ -281,6 +281,8 @@ func TestUpdateOAuthPasteFinishesAndPersists(t *testing.T) {
 	// xai is index 2
 	m, _ = applyKey(m, special(tea.KeyDown))
 	m, _ = applyKey(m, special(tea.KeyDown))
+	m, _ = applyKey(m, special(tea.KeyEnter)) // choose auth method
+	m, _ = applyKey(m, special(tea.KeyDown))  // OAuth
 	m, cmd := applyKey(m, special(tea.KeyEnter))
 	if cmd != nil {
 		// loopback failed — no wait cmd until paste
@@ -387,6 +389,8 @@ func TestStartLoginLoopbackPersistsDespiteStubLogin(t *testing.T) {
 	m, _ = applyKey(m, key('a'))
 	m, _ = applyKey(m, special(tea.KeyDown))
 	m, _ = applyKey(m, special(tea.KeyDown))
+	m, _ = applyKey(m, special(tea.KeyEnter)) // choose auth method
+	m, _ = applyKey(m, special(tea.KeyDown))  // OAuth
 	m, cmd := applyKey(m, special(tea.KeyEnter))
 	if cmd == nil {
 		t.Fatal("listening loopback should start Wait+CompleteLogin")

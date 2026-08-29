@@ -18,7 +18,7 @@ import (
 const authUsage = `Manage provider credentials.
 
 Usage:
-  mr-reviewer auth login <anthropic|openai|xai|google|kimi|deepseek|gitlab|github> [--api-key [TOKEN]] [--device] [--client-id ID]
+  mr-reviewer auth login <anthropic|openai|xai|google|kimi|deepseek|gitlab|github> [--api-key [TOKEN]] [--pat [TOKEN]] [--device] [--client-id ID]
   mr-reviewer auth status
   mr-reviewer auth logout <provider>
 
@@ -30,29 +30,20 @@ Login methods:
   google      paste a Google AI Studio key (alias: gemini)
   kimi        paste a key
   deepseek    paste a key
-  gitlab      browser OAuth with PKCE (requires your registered client ID),
-              --device for headless login, or --api-key for a PAT
-  github      device OAuth (requires your registered client ID), or --api-key for a PAT
+  gitlab      browser OAuth with PKCE, --device for headless login, or --pat for a PAT
+  github      device OAuth, or --pat for a PAT
 
---api-key with no value prompts (hidden on a TTY). --api-key TOKEN stores
-the token without a prompt (useful in scripts).
+--api-key with no value prompts (hidden on a TTY). Use --pat for GitLab or
+GitHub personal access tokens. --api-key remains accepted for existing scripts.
 
 Env vars take precedence over stored credentials:
   ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY,
   GEMINI_API_KEY / GOOGLE_API_KEY, KIMI_API_KEY, DEEPSEEK_API_KEY,
-   GITLAB_TOKEN, GITHUB_TOKEN. OAuth client IDs: GITLAB_OAUTH_CLIENT_ID,
-   GITHUB_OAUTH_CLIENT_ID.
+  GITLAB_TOKEN, GITHUB_TOKEN. OAuth client IDs may be overridden with
+  GITLAB_OAUTH_CLIENT_ID or GITHUB_OAUTH_CLIENT_ID.
 
-GitLab OAuth setup: create your own application at
-https://gitlab.com/-/user_settings/applications. Set its redirect URI to
-http://127.0.0.1:8620/oauth/callback, select only the api scope, then provide
-its Application ID with --client-id or GITLAB_OAUTH_CLIENT_ID. Do not provide
-or store the application secret; GitLab PKCE does not require it.
-
-GitHub OAuth setup: register your own OAuth App at
-https://github.com/settings/developers, enable Device Flow, select only the
-repo scope when prompted, then provide its Client ID with --client-id or
-GITHUB_OAUTH_CLIENT_ID. Do not provide or store the application secret.
+GitLab and GitHub OAuth use built-in public client IDs. Do not provide or store
+an application secret. --client-id remains available to use a custom OAuth app.
 `
 
 // promptSecret is the strike-shaped secret reader. Tests replace it.
@@ -203,14 +194,16 @@ func runAuthLogin(store *auth.Store, args []string, stdout io.Writer) error {
 
 func parseAPIKeyFlag(args []string) (used bool, value string) {
 	for i, a := range args {
-		if a == "--api-key" {
+		if a == "--api-key" || a == "--pat" {
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				return true, args[i+1]
 			}
 			return true, ""
 		}
-		if rest, ok := strings.CutPrefix(a, "--api-key="); ok {
-			return true, rest
+		for _, flag := range []string{"--api-key=", "--pat="} {
+			if rest, ok := strings.CutPrefix(a, flag); ok {
+				return true, rest
+			}
 		}
 	}
 	return false, ""
