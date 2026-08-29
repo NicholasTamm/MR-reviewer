@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -279,6 +280,69 @@ func TestBearerSourceOpenAIExchangesAfterRefresh(t *testing.T) {
 	credential, _ := st.Get("openai")
 	if credential.APIKey != "refreshed-api-key" || credential.Access != "new-access" {
 		t.Fatalf("credential=%+v", credential)
+	}
+}
+
+func TestConcurrentProviderRefreshUsesOneRequestAndPersistsRotation(t *testing.T) {
+	st, err := OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("xai", Credential{Type: TypeOAuth, Access: "old-access", Refresh: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var requests int
+	started := make(chan struct{})
+	release := make(chan struct{})
+	refreshServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.FormValue("refresh_token"); got != "old-refresh" {
+			t.Errorf("refresh_token = %q", got)
+		}
+		requests++
+		close(started)
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "new-access", "refresh_token": "new-refresh", "expires_in": 3600})
+	}))
+	defer refreshServer.Close()
+	previousFlow := refreshFlows["xai"]
+	refreshFlows["xai"] = FlowConfig{TokenURL: refreshServer.URL, ClientID: "test-client"}
+	t.Cleanup(func() { refreshFlows["xai"] = previousFlow })
+
+	const callers = 8
+	results := make(chan string, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			token, err := BearerSource("xai", st)(context.Background())
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- token
+		}()
+	}
+	<-started
+	close(release)
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	if requests != 1 {
+		t.Errorf("refresh requests = %d, want 1", requests)
+	}
+	for token := range results {
+		if token != "new-access" {
+			t.Errorf("token = %q", token)
+		}
+	}
+	credential, ok := st.Get("xai")
+	if !ok || credential.Access != "new-access" || credential.Refresh != "new-refresh" {
+		t.Fatalf("persisted credential = %+v, ok=%v", credential, ok)
 	}
 }
 

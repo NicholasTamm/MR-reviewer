@@ -109,24 +109,59 @@ func freshOAuth(ctx context.Context, store *Store, provider string) (Credential,
 	if time.Until(cred.ExpiresAt) > refreshSkew {
 		return cred, nil
 	}
-	flow, ok := refreshFlows[provider]
-	if !ok || cred.Refresh == "" {
-		return cred, nil
+	return store.refreshOAuth(ctx, provider)
+}
+
+func (s *Store) refreshOAuth(ctx context.Context, provider string) (Credential, error) {
+	s.oauthRefreshMu.Lock()
+	if call := s.oauthRefreshes[provider]; call != nil {
+		s.oauthRefreshMu.Unlock()
+		select {
+		case <-call.done:
+			return call.cred, call.err
+		case <-ctx.Done():
+			return Credential{}, ctx.Err()
+		}
 	}
-	tokens, err := flow.Refresh(ctx, cred.Refresh)
-	if err != nil {
-		return Credential{}, fmt.Errorf("refreshing %s token (run `mr-reviewer auth login %s` if this persists): %w", provider, provider, err)
+	call := &oauthRefreshCall{done: make(chan struct{})}
+	s.oauthRefreshes[provider] = call
+	s.oauthRefreshMu.Unlock()
+
+	// Re-read after joining the refresh flight so followers use the persisted rotation.
+	cred, ok := s.Get(provider)
+	if !ok || cred.Type != TypeOAuth || cred.Access == "" {
+		call.err = fmt.Errorf("no OAuth credentials for %s — run `mr-reviewer auth login %s`", provider, provider)
+	} else if time.Until(cred.ExpiresAt) > refreshSkew {
+		call.cred = cred
+	} else if flow, ok := refreshFlows[provider]; !ok || cred.Refresh == "" {
+		call.cred = cred
+	} else if tokens, err := flow.Refresh(ctx, cred.Refresh); err != nil {
+		call.err = fmt.Errorf("refreshing %s token (run `mr-reviewer auth login %s` if this persists): %w", provider, provider, err)
+	} else {
+		cred.Access = tokens.Access
+		cred.Refresh = tokens.Refresh
+		cred.ExpiresAt = tokens.ExpiresAt
+		if tokens.IDToken != "" {
+			cred.IDToken = tokens.IDToken
+		}
+		if err := s.Set(provider, cred); err != nil {
+			call.err = fmt.Errorf("persisting refreshed %s token: %w", provider, err)
+		} else {
+			call.cred = cred
+		}
 	}
-	cred.Access = tokens.Access
-	cred.Refresh = tokens.Refresh
-	cred.ExpiresAt = tokens.ExpiresAt
-	if tokens.IDToken != "" {
-		cred.IDToken = tokens.IDToken
-	}
-	if err := store.Set(provider, cred); err != nil {
-		return Credential{}, fmt.Errorf("persisting refreshed %s token: %w", provider, err)
-	}
-	return cred, nil
+
+	s.oauthRefreshMu.Lock()
+	delete(s.oauthRefreshes, provider)
+	close(call.done)
+	s.oauthRefreshMu.Unlock()
+	return call.cred, call.err
+}
+
+type oauthRefreshCall struct {
+	done chan struct{}
+	cred Credential
+	err  error
 }
 
 func openAIAPIKey(ctx context.Context, store *Store) (string, error) {
