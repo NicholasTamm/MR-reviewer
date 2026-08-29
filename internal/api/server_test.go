@@ -561,6 +561,12 @@ func TestOnboardingStatusAndComplete(t *testing.T) {
 	s.Store = store
 	s.sessions = newAuthSessionStore()
 	s.Settings.GitHubAPI = "https://api.github.com"
+	s.HTTP = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/v1/models" || req.Header.Get("x-api-key") != "provider-secret" {
+			t.Fatal("provider validation did not use the documented model endpoint and API-key header")
+		}
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"claude-test"}]}`), nil
+	})}
 	s.SaveOnboarding = func(state config.OnboardingState) error { saved = state; return nil }
 
 	resp := doJSON(t, s.Handler(), http.MethodGet, "/api/onboarding", "", nil)
@@ -587,6 +593,124 @@ func TestOnboardingStatusAndComplete(t *testing.T) {
 	if decode(t, resp)["complete"] != true {
 		t.Fatalf("status after complete: %v", decode(t, doJSON(t, s.Handler(), http.MethodGet, "/api/onboarding", "", nil)))
 	}
+}
+
+func TestOnboardingProviderValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		timeout    bool
+		changed    bool
+		wantDetail string
+		wantSaved  bool
+	}{
+		{name: "valid API key", status: http.StatusOK, wantSaved: true},
+		{
+			name:       "invalid credential",
+			status:     http.StatusUnauthorized,
+			wantDetail: "credential was rejected",
+		},
+		{
+			name:       "timeout",
+			timeout:    true,
+			wantDetail: "validation timed out",
+		},
+		{
+			name:       "credential changes during validation",
+			status:     http.StatusOK,
+			changed:    true,
+			wantDetail: "credential changed during validation",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Set("anthropic", auth.Credential{Type: auth.TypeAPIKey, APIKey: "provider-secret"}); err != nil {
+				t.Fatal(err)
+			}
+			s := testServer(t, nil, nil)
+			s.Store = store
+			s.HTTP = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				if req.Header.Get("x-api-key") != "provider-secret" {
+					t.Fatalf("credential was not sent as an Anthropic API key")
+				}
+				if tc.timeout {
+					return nil, context.DeadlineExceeded
+				}
+				if tc.changed {
+					if err := store.Set("anthropic", auth.Credential{Type: auth.TypeAPIKey, APIKey: "changed-secret"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return jsonResponse(tc.status, `{"data":[{"id":"claude-test"}]}`), nil
+			})}
+			s.Settings.GitHubAPI = "https://api.github.com"
+			saved := false
+			s.SaveOnboarding = func(config.OnboardingState) error { saved = true; return nil }
+			target, err := auth.NewPlatformTarget("github", "https://github.com", "https://api.github.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "platform-secret"}); err != nil {
+				t.Fatal(err)
+			}
+
+			resp := doJSON(t, s.Handler(), http.MethodPost, "/api/onboarding", `{"provider":"anthropic","platform":"github"}`, nil)
+			data := decode(t, resp)
+			if tc.wantSaved {
+				if resp.StatusCode != http.StatusOK || !saved {
+					t.Fatalf("status=%d saved=%t data=%v", resp.StatusCode, saved, data)
+				}
+				return
+			}
+			if resp.StatusCode != http.StatusUnprocessableEntity || saved || !strings.Contains(data["detail"].(string), tc.wantDetail) {
+				t.Fatalf("status=%d saved=%t data=%v", resp.StatusCode, saved, data)
+			}
+		})
+	}
+}
+
+func TestOnboardingProviderValidationUsesOAuthBearer(t *testing.T) {
+	store, err := auth.OpenStore(filepath.Join(t.TempDir(), "auth.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("xai", auth.Credential{Type: auth.TypeOAuth, Access: "oauth-access", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	target, err := auth.NewPlatformTarget("github", "https://github.com", "https://api.github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPlatform(context.Background(), target, auth.PlatformCredential{Type: auth.PlatformPAT, Token: "platform-secret"}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := testServer(t, nil, nil)
+	s.Store = store
+	s.Settings.GitHubAPI = "https://api.github.com"
+	s.HTTP = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Header.Get("Authorization") != "Bearer oauth-access" || req.Header.Get("x-api-key") != "" {
+			t.Fatal("OAuth validation did not use the expected bearer credential")
+		}
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"grok-test"}]}`), nil
+	})}
+	s.SaveOnboarding = func(config.OnboardingState) error { return nil }
+
+	resp := doJSON(t, s.Handler(), http.MethodPost, "/api/onboarding", `{"provider":"xai","platform":"github"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d data=%v", resp.StatusCode, decode(t, resp))
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return fn(req) }
+
+func jsonResponse(status int, body string) *http.Response {
+	return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 
 func TestAuthDeviceSessionBlocksUntilCompleteOrCancel(t *testing.T) {
