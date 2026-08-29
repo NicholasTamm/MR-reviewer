@@ -1,12 +1,18 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jonathanung/mr-reviewer/internal/auth"
 	"github.com/jonathanung/mr-reviewer/internal/config"
+	"github.com/jonathanung/mr-reviewer/internal/provider"
 )
+
+const providerValidationTimeout = 15 * time.Second
 
 func (s *Server) handleOnboardingStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.onboardingStatus())
@@ -76,9 +82,9 @@ func (s *Server) handleOnboardingComplete(w http.ResponseWriter, r *http.Request
 		writeDetail(w, http.StatusUnprocessableEntity, "select one supported Git platform")
 		return
 	}
-	providerFingerprint, ok := s.providerFingerprint(provider)
-	if !ok {
-		writeDetail(w, http.StatusUnprocessableEntity, "validate the selected AI provider")
+	providerFingerprint, err := s.validateProvider(r.Context(), provider)
+	if err != nil {
+		writeDetail(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	target, err := s.platformTarget(platform)
@@ -166,6 +172,43 @@ func (s *Server) providerFingerprint(name string) (string, bool) {
 		extraEnv = custom.APIKeyEnv
 	}
 	return auth.CredentialFingerprint(name, s.Store, extraEnv)
+}
+
+// validateProvider uses each provider's documented model-list endpoint. It
+// validates the resolved credential without generating content or charging for
+// a completion.
+func (s *Server) validateProvider(ctx context.Context, name string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, providerValidationTimeout)
+	defer cancel()
+
+	key, err := catalogKey(ctx, name, s.Settings, s.Store)
+	if err != nil {
+		return "", providerValidationError(name, err)
+	}
+	fingerprint, ok := s.providerFingerprint(name)
+	if !ok {
+		return "", errors.New("AI provider credential is unavailable; update the credential and try again")
+	}
+	_, err = provider.ListRemoteModels(ctx, s.HTTP, name, catalogBaseURL(s.Settings, name), key)
+	if err != nil {
+		return "", providerValidationError(name, err)
+	}
+	current, ok := s.providerFingerprint(name)
+	if !ok || current != fingerprint {
+		return "", errors.New("AI provider credential changed during validation; try again")
+	}
+	return fingerprint, nil
+}
+
+func providerValidationError(name string, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("AI provider validation timed out; check your network and provider endpoint, then try again")
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "401") || strings.Contains(message, "403") || strings.Contains(message, "unauthorized") || strings.Contains(message, "forbidden") {
+		return errors.New("AI provider credential was rejected; update the credential and try again")
+	}
+	return errors.New("could not validate " + name + " credentials; check the provider endpoint and network, then try again")
 }
 
 func (s *Server) platformTarget(name string) (auth.PlatformTarget, error) {
