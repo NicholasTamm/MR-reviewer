@@ -39,6 +39,8 @@ type Store struct {
 	platformCreds     map[string]PlatformCredential
 	refreshMu         sync.Mutex
 	refreshes         map[string]*platformRefreshCall
+	oauthRefreshMu    sync.Mutex
+	oauthRefreshes    map[string]*oauthRefreshCall
 	platformRefresher PlatformRefresher
 }
 
@@ -62,7 +64,7 @@ func DefaultPath() string {
 }
 
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, creds: map[string]Credential{}, platformCreds: map[string]PlatformCredential{}, refreshes: map[string]*platformRefreshCall{}, platformRefresher: refreshPlatformOAuth}
+	s := &Store{path: path, creds: map[string]Credential{}, platformCreds: map[string]PlatformCredential{}, refreshes: map[string]*platformRefreshCall{}, oauthRefreshes: map[string]*oauthRefreshCall{}, platformRefresher: refreshPlatformOAuth}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s, nil

@@ -279,11 +279,15 @@ func (f FlowConfig) exchangeCode(ctx context.Context, code string, pkce pkceCode
 }
 
 func (f FlowConfig) Refresh(ctx context.Context, refreshToken string) (*Tokens, error) {
-	resp, err := postForm(ctx, f.TokenURL, url.Values{
+	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 		"client_id":     {f.ClientID},
-	})
+	}
+	if f.RedirectHost != "" && f.RedirectPort > 0 && f.RedirectPath != "" {
+		form.Set("redirect_uri", f.redirectURI())
+	}
+	resp, err := postForm(ctx, f.TokenURL, form)
 	if err != nil {
 		return nil, fmt.Errorf("token refresh: %w", err)
 	}

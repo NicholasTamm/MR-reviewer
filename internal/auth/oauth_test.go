@@ -248,3 +248,23 @@ func TestFlowRefresh(t *testing.T) {
 		t.Fatalf("%+v %v", tok, err)
 	}
 }
+
+func TestGitLabRefreshIncludesRedirectURI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		vals, _ := url.ParseQuery(string(body))
+		if got, want := vals.Get("redirect_uri"), "http://127.0.0.1:8620/oauth/callback"; got != want {
+			t.Errorf("redirect_uri = %q, want %q", got, want)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "new-access", "expires_in": 1800})
+	}))
+	defer srv.Close()
+	flow, err := GitLabFlow("cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow.TokenURL = srv.URL
+	if _, err := flow.Refresh(context.Background(), "old-refresh"); err != nil {
+		t.Fatal(err)
+	}
+}
